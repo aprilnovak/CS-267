@@ -109,7 +109,7 @@ void square_dgemm (int n, double* A, double* B, double* C)
     for (int j = 0; j < n; ++j)
     {
       double cij = C[i+j*n];
-      for( int k = 0; k < n; k++ )
+      for(int k = 0; k < n; k++)
         cij += A[i+k*n] * B[k+j*n];
       C[i+j*n] = cij;
     }
@@ -124,7 +124,7 @@ void square_dgemm (int n, double* A, double* B, double* C)
   for (int i = 0; i < n; ++i)
     for (int j = 0; j < n; ++j)
     {
-      for( int k = 0; k < n; k++ )
+      for(int k = 0; k < n; k++)
         C[i+j*n] += A[i+k*n] * B[k+j*n];
     }
 }
@@ -133,9 +133,13 @@ void square_dgemm (int n, double* A, double* B, double* C)
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.6\textwidth]{fig1.png}
-\caption{Difference in Mflop/s for (a) the original code encouraging register-allocation for {\tt cij} and (b) the even-more naive code with fewer flops but greater slow memory traffic (no intermediate variable {\tt cij} defined).}
+\caption{Difference in Mflop/s for (a) the original code encouraging register-allocation for {\tt cij} and (b) the even-more naive code with fewer flops but greater slow memory traffic (no intermediate variable {\tt cij} defined). Results are shown for only a single run of each case.}
 \label{fig:1}
 \end{figure}
+
+Encouraging the compiler to place commonly-used variables in the register by defining a variable just outside the loop offers the best improvement in performance speed for smaller matrix sizes. As can be seen from Fig. \ref{fig:1}, for matrices of size greater than about 500\(\times\)500, the improvement is negligible. This may be due to the fact that other processes in the algorithm begin to dominate and bottleneck, rather than the slow memory access of {\tt C[i+j*n]}. However, this technique of encouraging the compiler to place variables in a register is still applicable for the blocked algorithm discussed in the next section, and hence will be investigated as a method for optimization.
+
+Both curves in Fig. \ref{fig:1} show very sharp dips in performance at matrix sizes of 128, 192, 256, 320, and 480, where the speed decreases monotonically after a size of 511. Because these dips in performance occur regardless of if the compiler is being encourage to store values in the register, they are likely due to other features of the memory hierarchy. 
 
 \section{Blocked Implementation}
 
