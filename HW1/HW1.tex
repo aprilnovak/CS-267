@@ -94,7 +94,52 @@
 
 \maketitle
 
-\section{}
+\section{Introduction}
+
+The purpose of this assignment is to optimize matrix-matrix multiplication to run as fast as possible on a single processor on the Edison machine at the National Energy Research Scientific Computing Center (NERSC). All methods used for optimizing matrix-matrix multiply pursued here will use \(2n^3\) floating point operations for matrices of size \(n\times n\). Hence, the methods used to optimize matrix-matrix multiplication will focus not on reducing the number of flops, but rather on movement through the memory hierarchy.
+
+\section{Naive Implementation}
+
+This section discusses benchmark results obtained with the naive implementation of matrix-matrix multiply using three nested loops in order to provide the motivation and possible directions to pursue for optimizing matrix-matrix multiplication using a different approach. The {\tt dgemm-naive.c} source file implements matrix-matrix multiplication using a 3-loop structure, where the innermost loop computes the dot product of a row of \(A\) with a column of \(B\), and assigns this to an entry in \(C\). The only attempt at some level of optimization in this code is the encouragement of the compiler in putting the intermediate value {\tt cij} in a register by defining this \textit{technically unnecessary} variable just outside the innermost loop (with iteration counter {\tt k}) such that {\tt cij} is stored in a register for fast operation for all of the {\tt k} loops for a set {\tt i} and {\tt j}.  
+
+\begin{lstlisting}[language=C][H]
+void square_dgemm (int n, double* A, double* B, double* C)
+{
+  for (int i = 0; i < n; ++i)
+    for (int j = 0; j < n; ++j)
+    {
+      double cij = C[i+j*n];
+      for( int k = 0; k < n; k++ )
+        cij += A[i+k*n] * B[k+j*n];
+      C[i+j*n] = cij;
+    }
+}
+\end{lstlisting}
+
+This optimization can be demonstrated by changing the above code block to the following, which removes any attempt to encourage the compiler to place {\tt C[i+j*n]} in a register. Although this block has fewer floating point operations, the performance is degraded due to the greater number of slower memory calls. Fig. \ref{fig:1} shows the difference in Mflop/s for (a) the original code that encourages the compiler to place a frequently-used variable in a register and (b) code that removes the technically unnecessary variable {\tt cij} to reduce flops at the expense of more slow memory traffic.
+
+\begin{lstlisting}[language=C][H]
+void square_dgemm (int n, double* A, double* B, double* C)
+{
+  for (int i = 0; i < n; ++i)
+    for (int j = 0; j < n; ++j)
+    {
+      for( int k = 0; k < n; k++ )
+        C[i+j*n] += A[i+k*n] * B[k+j*n];
+    }
+}
+\end{lstlisting}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{fig1.png}
+\caption{Difference in Mflop/s for (a) the original code encouraging register-allocation for {\tt cij} and (b) the even-more naive code with fewer flops but greater slow memory traffic (no intermediate variable {\tt cij} defined).}
+\label{fig:1}
+\end{figure}
+
+\section{Blocked Implementation}
+
+\section{Cori Intel Xeon Phi Optimization}
 
 \end{document}
 
