@@ -185,6 +185,7 @@ Fig. \ref{fig:2} shows the great improvement in the Mflop/s with this simple cop
 \end{figure}
 
 \subsection{SIMD Instructions}
+\label{sec:SIMDNaive}
 
 \gls{simd} instructions allow a single instruction to be issued to perform an operation on multiple values at the same time. The registers on Edison each hold 32 bytes, which for double data type corresponds to four double values (8 bytes per double). Hence, there is potential for a four-fold improvement in speed, though likely the improvement will be lower because the program does not consist entirely of arithmetic operations such as adds and multiplies. The Ivy Bridge processor used in Edison uses \gls{avx} instructions, which through the {\tt immintrin.h} library allow access to a wide variety of methods to utilize \gls{simd} operations. The code below shows a simple implementation of \gls{simd} instructions in the naive code, where {\tt benchmark.c} has been modified to only include block sizes that are divisible by four (each register can only hold four double precision numbers). The transposed code from the previous section is used. To use \gls{simd} instructions in the blocked example for arbitrary matrix sizes, additional code will be written to account for block sizes that are not divisible by four.
 
@@ -314,6 +315,106 @@ Different block sizes can be used in each of the directions. Because {\tt C} use
 \end{figure}
 
 \subsection{SIMD Instructions} 
+
+\gls{simd} instructions were implemented in the blocked code to give a fairly large improvement in performance. In order to generalize to all matrix sizes, however, the program execution was split amongst two functions - {\tt do\_block}, which performs on block sizes of 16\(\times\) 16, and {\tt do\_block\_odd}, which performs all non-square blocks that occur on the periphery of the matrix. Within the {\tt do\_block} function, 16 values of the transpose matrix \(A\) and the matrix \(B\) are read in and multiplied with each other, and then all added together to give four-times as many \gls{simd} instructions per {\tt k} loop as shown in Section \ref{sec:SIMDNaive}. The code is shown below, and Fig. \ref{fig:7} shows the improvement in performance compared to the original blocked code. While overall there is a substantial improvement in performance, the behavior is more erratic at matrix sizes that just miss being a multiple of the block size of 16, since then all the loops that cover the odd-sized blocks must be executed. So, while \gls{simd} is useful for improving speed, other implementation approaches are pursued to attempt to avoid such erratic behavior and to push the performance higher.
+
+\begin{lstlisting}[language=C, basicstyle=\small][H]
+#include <immintrin.h>
+#define min(a,b) (((a)<(b))?(a):(b))
+
+#if !defined(BLOCK_SIZE)
+#define BLOCK_SIZE 16
+#endif
+
+static void do_block_odd(int lda,int M,int N,int K,double* A,double* B,double* C) {
+     for (int i = 0; i < M; ++i) {
+         for (int j = 0; j < N; ++j) {
+             double cij = C[i+j*lda];
+             for (int k = 0; k < K; ++k)
+                 cij += A[k + i*lda] * B[k+j*lda];
+             C[i+j*lda] = cij;
+}}}
+
+static void do_block (int lda, int M, double* A, double* B, double* C) {
+    for (int i = 0; i < M; ++i) {
+        for (int j = 0; j < M; ++j) {
+            __m256d cij = _mm256_set1_pd(0);
+            __m256d dij = _mm256_set1_pd(0);
+            __m256d fij = _mm256_set1_pd(0);
+            __m256d hij = _mm256_set1_pd(0);
+            for (int k = 0; k < M; k+=16) {
+                __m256d As = _mm256_load_pd(A+k+i*lda);
+                __m256d Bs = _mm256_load_pd(B+k+j*lda);
+                cij += _mm256_mul_pd(As, Bs);
+                __m256d Ar = _mm256_load_pd(A+k+i*lda+4);
+                __m256d Br = _mm256_load_pd(B+k+j*lda+4);
+                dij += _mm256_mul_pd(Ar, Br);
+                __m256d At = _mm256_load_pd(A+k+i*lda+8);
+                __m256d Bt = _mm256_load_pd(B+k+j*lda+8);
+                fij += _mm256_mul_pd(At, Bt);
+                __m256d Au = _mm256_load_pd(A+k+i*lda+12);
+                __m256d Bu = _mm256_load_pd(B+k+j*lda+12);
+                hij += _mm256_mul_pd(Au, Bu);
+            }
+            double tmp[4];
+            __m256d eij = _mm256_add_pd(cij, dij);
+            __m256d lij = _mm256_add_pd(fij, hij);
+            __m256d mij = _mm256_add_pd(eij, lij);
+            _mm256_store_pd(tmp, mij);
+            C[i+j*lda] += tmp[0] + tmp[1] + tmp[2] + tmp[3];
+}}}
+
+void square_dgemm (int lda, double* A, double* B, double*  C) {
+  double a [1024*1024];
+  for (int i = 0; i < lda; ++i) {
+    for (int j = 0; j < lda; ++j)
+        a[i + j*lda] = A[j + i*lda];
+  }
+
+ int I = lda - lda
+  for (int i = 0; i < I; i += BLOCK_SIZE) {
+    for (int j = 0; j < I; j += BLOCK_SIZE) {
+      for (int k = 0; k < I; k += BLOCK_SIZE)
+	do_block(lda, BLOCK_SIZE, a + k + i*lda, B + k + j*lda, C + i + j*lda);
+  }}
+
+  for (int i = 0; i < I; i += BLOCK_SIZE) {
+    int M = min(BLOCK_SIZE, lda-i);
+    int k = I;
+    int K = lda - k;
+    for (int j = 0; j < I; j += BLOCK_SIZE) {
+        int N = min(BLOCK_SIZE, lda-j);
+        do_block_odd(lda, M, N, K, a + k + i*lda, B + k + j*lda, C + i + j*lda);
+  }}
+
+  for (int i = 0; i < I; i+= BLOCK_SIZE)
+  {
+    int M = min(BLOCK_SIZE, lda-i);
+    int j = I;
+    int N = lda-j;
+    for (int k = 0; k < lda; k += BLOCK_SIZE) {
+        int K = min(BLOCK_SIZE, lda-k);
+        do_block_odd(lda, M, N, K, a + k + i*lda, B + k + j*lda, C + i + j*lda);
+  }}
+
+  int i = I;
+  int M = lda-i;
+  for (int j = 0; j < lda; j += BLOCK_SIZE)
+  {
+    int N = min(BLOCK_SIZE, lda-j);
+    for (int k = 0; k < lda; k += BLOCK_SIZE) {
+        int K = min(BLOCK_SIZE, lda-k);
+        do_block_odd(lda, M, N, K, a + k + i*lda, B + k + j*lda, C + i + j*lda);
+  }}
+}
+\end{lstlisting}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{figures/four-way-simd.png}
+\caption{Difference in Mflop/s for (a) the four-way \gls{simd} code shown above and (b) the original blocked code.}
+\label{fig:4}
+\end{figure}
 
 \section{Running the Optimized Code on Another Machine}
 
