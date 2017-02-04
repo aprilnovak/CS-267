@@ -315,6 +315,7 @@ Different block sizes can be used in each of the directions. Because {\tt C} use
 \end{figure}
 
 \subsection{Removing the {\tt do\_block} function}
+\label{sec:RemoveFuncBlocked}
 
 The blocked code can be written in a form that eliminates the need for the {\tt do\_block} function entirely by essentially embedding the {\tt do\_block} code within the loop structure of the {\tt square\_dgemm} function. The three original loops are present, but then within the innermost of those loops are three additional loops that pass through {\tt ii, jj, kk}, which essentially represent the indices of the sub-blocks. This code shown below only works for matrices that are multiples of the block size. Fig. \ref{fig:8} compares the performance of this code to that of the original blocked code. As can be seen, there is a nearly uniform improvement in the performance by eliminated the overhead associated with the function calls of {\tt do\_block}.
 
@@ -349,6 +350,54 @@ void square_dgemm (int n,double* restrict _A,double* restrict B,double* restrict
 \includegraphics[width=0.6\textwidth]{figures/no-do-block.png}
 \caption{Difference in Mflop/s for (a) the original blocked code and (b) the blocked code that eliminates the {\tt do\_block} function (results only shown for matrices that are multiples of the block size).}
 \label{fig:8}
+\end{figure}
+
+\subsection{Linearized Blocks}
+
+The code shown in Section \ref{sec:RemoveFuncBlocked} can be further improved by changing the addressing. In the above code, the {\tt AA, BB, CC} matrices take two indices which represent the position within the matrix and the position within the particular sub-block. Instead, these matrices are modified such that they are described using four indices - {\tt i, j} to refer to the block, and {\tt ii, jj} to the position within that block. By linearizing the blocks, spatial locality is improved by allowing more currently-needed information to be read in with each cache line. In the code below, {\tt AA} and {\tt BB} are matrices that allow access to {\tt A} and {\tt B} in a linear manner - this means that, when a block is read in, all the bytes for that block are located sequentially in memory. All the bytes for the first block in memory are immediately followed by all the bytes for the second block, and so on. So, in the inner loops with {\tt ii, jj, kk} indices, {\tt A[k,i]} and {\tt B[k,j]} should stay in the cache provided the block size is not too large. Fig. \ref{fig:9} compares the results obtained with linearized blocks and the original blocked code. As can be seen, this approach actually gives poorer results than the original blocked code, which may be due to cache interference, the fact that much larger matrices may be required to see the payoff of the extra computation, or that the cache prefetcher is confused or acting in opposition to the new memory layout.
+
+\begin{lstlisting}[language=C, basicstyle=\small][H]
+#define BS 8
+#define BSS (BS*BS) // Block size squared (length of a linearized block)
+
+// Access A/B/C in original format
+#define OA(_i,_ii,_j,_jj) _A[ ((_i*BS)+(_ii)) * n + ((_j*BS)+(_jj)) ] // Transposed
+#define OB(_i,_ii,_j,_jj) _B[ ((_i*BS)+(_ii)) + n * ((_j*BS)+(_jj)) ]
+#define OC(_i,_ii,_j,_jj)  C[ ((_i*BS)+(_ii)) + n * ((_j*BS)+(_jj)) ]
+
+// Access shadow A/B/C with linearized blocks
+#define AA(_j,_jj,_i,_ii) A[ ((_i)+((_j)*nb))*BSS + (_ii) + (_jj)*BS ]
+#define BB(_j,_jj,_i,_ii) B[ ((_i)+((_j)*nb))*BSS + (_ii) + (_jj)*BS ]
+
+static double A[1024*1024];
+static double B[1024*1024];
+
+void square_dgemm (int n,double* restrict _A,double* restrict _B,double* restrict C){
+  int nb = n / BS; // Size in terms of blocks
+
+  for (int i = 0; i < nb; ++i)
+    for (int j = 0; j < nb; ++j)
+      for (int ii = 0; ii < BS; ++ii)
+        for (int jj = 0; jj < BS; ++jj) {
+          AA(i,ii,j,jj) = OA(i,ii,j,jj);
+          BB(i,ii,j,jj) = OB(i,ii,j,jj);
+        }
+
+  for (int i = 0; i < nb; i += 1)
+    for (int j = 0; j < nb; j += 1)
+      for (int k = 0; k < nb; k += 1)
+        for (int ii = 0; ii < BS; ++ii)
+          for (int jj = 0; jj < BS; ++jj)
+            for (int kk = 0; kk < BS; ++kk)
+              OC(i,ii,j,jj) += AA(k,kk,i,ii) * BB(k,kk,j,jj);
+}
+\end{lstlisting}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{figures/linearized-blocks.png}
+\caption{Difference in Mflop/s for (a) the original blocked code and (b) the linearized block code where all entries in a block are located in sequential locations in memory (results only shown for matrices that are multiples of the block size).}
+\label{fig:9}
 \end{figure}
 
 \subsection{SIMD Instructions} 
