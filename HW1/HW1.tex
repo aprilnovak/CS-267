@@ -284,7 +284,7 @@ void square_dgemm (int lda, double* A, double* B, double* C) {
 \subsection{Block Size}
 This section discusses optimizations involving selection of the block size. First, using the column-layout code developed in Section \ref{sec:ColumnLayout}, block sizes in powers of 2 are tested to investigate if it is possible to learn what the cache line size of Edison is. Knowledge of the cache line size is useful because tailoring the code to seek data in chunks equal to the cache line size will reduce the number of cache misses. Fig. \ref{fig:4} shows the Mflop/s for various block sizes. It appears that a block size of 16 performs the best, though all sizes show a very clear drop in performance at a matrix size of 512\(\times\) 512, which is likely the size of the L2-cache. 
  
- \begin{figure}[H]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.6\textwidth]{figures/256.png}
 \caption{Difference in Mflop/s for various block sizes, where the same block size is used for the \(i\) and \(j\) directions.}
@@ -314,9 +314,46 @@ Different block sizes can be used in each of the directions. Because {\tt C} use
         \label{fig:5}
 \end{figure}
 
+\subsection{Removing the {\tt do\_block} function}
+
+The blocked code can be written in a form that eliminates the need for the {\tt do\_block} function entirely by essentially embedding the {\tt do\_block} code within the loop structure of the {\tt square\_dgemm} function. The three original loops are present, but then within the innermost of those loops are three additional loops that pass through {\tt ii, jj, kk}, which essentially represent the indices of the sub-blocks. This code shown below only works for matrices that are multiples of the block size. Fig. \ref{fig:8} compares the performance of this code to that of the original blocked code. As can be seen, there is a nearly uniform improvement in the performance by eliminated the overhead associated with the function calls of {\tt do\_block}.
+
+\begin{lstlisting}[language=C, basicstyle=\small][H]
+#define BS 32
+#define AA(__x,__y) A[(__x)+n*(__y)]
+#define BB(__x,__y) B[(__x)+n*(__y)]
+#define CC(__x,__y) C[(__x)+n*(__y)]
+
+#undef AA
+#define AA(__x,__y) A[(__y)+n*(__x)] // transposed
+
+double A[1024*1024];
+
+void square_dgemm (int n,double* restrict _A,double* restrict B,double* restrict C){
+  for (int i = 0; i < n; ++i)
+    for (int j = 0; j < n; ++j)
+      A[i + j*n] = _A[j + i*n];
+
+  for (int i = 0; i < n; i += BS)
+    for (int j = 0; j < n; j += BS)
+      for (int k = 0; k < n; k += BS)
+        for (int ii = 0; ii < BS; ++ii)
+          for (int jj = 0; jj < BS; ++jj)
+            for (int kk = 0; kk < BS; ++kk)
+              CC(i+ii,j+jj) += AA(i+ii,k+kk) * BB(k+kk,j+jj);
+}
+\end{lstlisting}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{figures/no-do-block.png}
+\caption{Difference in Mflop/s for (a) the original blocked code and (b) the blocked code that eliminates the {\tt do\_block} function (results only shown for matrices that are multiples of the block size).}
+\label{fig:8}
+\end{figure}
+
 \subsection{SIMD Instructions} 
 
-\gls{simd} instructions were implemented in the blocked code to give a fairly large improvement in performance. In order to generalize to all matrix sizes, however, the program execution was split amongst two functions - {\tt do\_block}, which performs on block sizes of 16\(\times\) 16, and {\tt do\_block\_odd}, which performs all non-square blocks that occur on the periphery of the matrix. Within the {\tt do\_block} function, 16 values of the transpose matrix \(A\) and the matrix \(B\) are read in and multiplied with each other, and then all added together to give four-times as many \gls{simd} instructions per {\tt k} loop as shown in Section \ref{sec:SIMDNaive}. The code is shown below, and Fig. \ref{fig:7} shows the improvement in performance compared to the original blocked code. While overall there is a substantial improvement in performance, the behavior is more erratic at matrix sizes that just miss being a multiple of the block size of 16, since then all the loops that cover the odd-sized blocks must be executed. So, while \gls{simd} is useful for improving speed, other implementation approaches are pursued to attempt to avoid such erratic behavior and to push the performance higher.
+\gls{simd} instructions were implemented in the blocked code to give a fairly large improvement in performance. In order to generalize to all matrix sizes, however, the program execution was split amongst two functions - {\tt do\_block}, which performs on block sizes of 16\(\times\) 16, and {\tt do\_block\_odd}, which performs all non-square blocks that occur on the periphery of the matrix. Within the {\tt do\_block} function, 16 values of the transpose matrix \(A\) and the matrix \(B\) are read in and multiplied with each other, and then all added together to give four-times as many \gls{simd} instructions per {\tt k} loop as shown in Section \ref{sec:SIMDNaive}. The code is shown below, and Fig. \ref{fig:7} shows the improvement in performance compared to the original blocked code. While overall there is a substantial improvement in performance, the behavior is more erratic at matrix sizes that just miss being a multiple of the block size of 16, since then all the loops that cover the odd-sized blocks must be executed. So, while \gls{simd} is useful for improving speed, other implementation approaches are pursued to attempt to avoid such erratic behavior and to push the performance higher. By comparing Fig. \ref{fig:7} with Fig. \ref{fig:6}, it can be seen that the blocked approach with this implementation of \gls{simd} instructions does not offer a substantial advantage over the \gls{simd} used in the naive code, which points to the fact that additional optimizations can still be performed with the blocked code.
 
 \begin{lstlisting}[language=C, basicstyle=\small][H]
 #include <immintrin.h>
@@ -413,7 +450,7 @@ void square_dgemm (int lda, double* A, double* B, double*  C) {
 \centering
 \includegraphics[width=0.6\textwidth]{figures/four-way-simd.png}
 \caption{Difference in Mflop/s for (a) the four-way \gls{simd} code shown above and (b) the original blocked code.}
-\label{fig:4}
+\label{fig:7}
 \end{figure}
 
 \section{Running the Optimized Code on Another Machine}
