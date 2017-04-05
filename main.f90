@@ -11,37 +11,27 @@ integer, parameter :: rk = selected_real_kind(15, 307)
 integer             :: nargs   ! number of command line parameters
 integer             :: i       ! looping variable for reading command line params
 character(len = 12) :: args    ! command line parameters
+integer             :: AllocateStatus ! variable to hold memory allocation success
 
 ! program variables related to FEM solve
 real(rk) :: length             ! length of the domain (1-D)
 integer  :: n_el               ! number of elements
 integer  :: order              ! polynomial order
-real (rk), dimension(13) :: x  ! coordinates of the nodes
+real (rk), dimension(:), allocatable :: x  ! coordinates of the nodes
 real(rk) :: h                  ! length of one element
+real (rk), dimension(:, :), allocatable :: qp ! quadrature points and weights
 
-! obtain number of command line arguments
-nargs = command_argument_count()
 
-! parse command line arguments
-do i = 1, nargs
-  call get_command_argument(i, args)
+call commandline(i, nargs, args, length, n_el, order)
 
-  ! use internal reads to convert from character to numeric types
-  ! (read from the character buffer into the numeric variable)
-  select case (i)
-    case(1) ! length of domain
-      read(args, *) length  
-    case(2) ! number of elements
-      read(args, *) n_el
-    case(3) ! polynomial order
-      read(args, *) order
-    case default
-      write(*,*) "Too many command line parameters."
-  end select  
-enddo
-
-! initialize the coordinates of the domain
 h = length / real(n_el)
+
+! allocate memory for the vector of node coordinates
+allocate(x(n_el + 1), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of x array failed."
+
+allocate(qp(ceiling((real(order) + 1.0) / 2.0), 2), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of qp array failed."
 
 do i = 1, size(x)
   x(i) = 1.0
@@ -56,7 +46,8 @@ call quadrature(order)
 
 
 
-
+! deallocate memory 
+deallocate(x)
 
 CONTAINS
 
@@ -66,6 +57,34 @@ subroutine quadrature(order)
   write(*,*) "quadrature subroutine."
 end subroutine quadrature
 
+subroutine commandline(i, nargs, args, length, n_el, order)
+  integer, intent(inout)  :: i
+  integer, intent(out) :: nargs
+  character(len = 12), intent(inout) :: args
+  real(rk), intent(out) :: length
+  integer, intent(out)  :: n_el
+  integer, intent(out)  :: order
+    
+  nargs = command_argument_count()
+
+  ! parse command line arguments
+  do i = 1, nargs
+    call get_command_argument(i, args)
+  
+    ! use internal reads to convert from character to numeric types
+    ! (read from the character buffer into the numeric variable)
+    select case (i)
+      case(1) ! length of domain
+        read(args, *) length  
+      case(2) ! number of elements
+        read(args, *) n_el
+      case(3) ! polynomial order
+        read(args, *) order
+      case default
+        write(*,*) "Too many command line parameters."
+    end select  
+  enddo
+end subroutine commandline
 
 
 END PROGRAM main
