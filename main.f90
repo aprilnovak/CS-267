@@ -8,9 +8,6 @@ implicit none
 integer, parameter :: rk = selected_real_kind(15, 307)
 
 ! program variables related to execution
-integer             :: nargs   ! number of command line parameters
-integer             :: i       ! looping variable for reading command line params
-character(len = 12) :: args    ! command line parameters
 integer             :: AllocateStatus ! variable to hold memory allocation success
 
 ! program variables related to FEM solve
@@ -21,8 +18,8 @@ real (rk), dimension(:), allocatable :: x  ! coordinates of the nodes
 real(rk) :: h                  ! length of one element
 real (rk), dimension(:, :), allocatable :: qp ! quadrature points and weights
 
-
-call commandline(i, nargs, args, length, n_el, order)
+! parse command line arguments
+call commandline(length, n_el, order)
 
 h = length / real(n_el)
 
@@ -57,17 +54,20 @@ subroutine quadrature(order)
   write(*,*) "quadrature subroutine."
 end subroutine quadrature
 
-subroutine commandline(i, nargs, args, length, n_el, order)
-  integer, intent(inout)  :: i
-  integer, intent(out) :: nargs
-  character(len = 12), intent(inout) :: args
+
+subroutine commandline(length, n_el, order)
+  ! define subroutine parameters
   real(rk), intent(out) :: length
   integer, intent(out)  :: n_el
   integer, intent(out)  :: order
-    
+ 
+  ! define local variables 
+  integer :: nargs            ! number of command line arguments
+  integer :: i                ! looping variable
+  character(len = 12) :: args ! command line argument
+
   nargs = command_argument_count()
 
-  ! parse command line arguments
   do i = 1, nargs
     call get_command_argument(i, args)
   
