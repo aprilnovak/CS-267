@@ -17,6 +17,7 @@ real(rk) :: length             ! length of the domain (1-D)
 integer  :: n_el               ! number of elements
 integer  :: order              ! polynomial order
 real (rk), dimension(13) :: x  ! coordinates of the nodes
+real(rk) :: h                  ! length of one element
 
 ! obtain number of command line arguments
 nargs = command_argument_count()
@@ -39,7 +40,32 @@ do i = 1, nargs
   end select  
 enddo
 
-write(*,*) length
+! initialize the coordinates of the domain
+h = length / real(n_el)
+
+do i = 1, size(x)
+  x(i) = 1.0
+end do
+
+! initialize the quadrature rule
+call quadrature(order)
+
+
+
+
+
+
+
+
+
+CONTAINS
+
+subroutine quadrature(order)
+  integer, intent(in) :: order
+
+  write(*,*) "quadrature subroutine."
+end subroutine quadrature
+
 
 
 END PROGRAM main
