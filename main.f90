@@ -1,3 +1,6 @@
+! program to solve the heat equation (Dirichlet boundary conditions only)
+
+
 PROGRAM main
 
 ! turn off implicit typing
@@ -16,9 +19,14 @@ integer  :: n_el               ! number of elements
 integer  :: n_en               ! number of nodes per element
 integer  :: n_nodes            ! total number of nodes
 integer  :: order              ! polynomial order
-real (rk), dimension(:), allocatable :: x  ! coordinates of the nodes
+integer  :: n_qp               ! number of quadrature points
 real(rk) :: h                  ! length of one element
-real (rk), dimension(:, :), allocatable :: qp ! quadrature points and weights
+real(rk) :: k                  ! thermal conductivity
+real(rk), dimension(:, :), allocatable :: qp  ! quadrature points and weights
+real(rk), dimension(:), allocatable :: x      ! coordinates of the nodes
+real(rk), dimension(:, :), allocatable :: kel ! elemental stiffness matrix
+real(rk), dimension(:, :), allocatable :: phi    ! shape functions
+!real(rk), dimension(:), allocatable :: dphi   ! shape function derivatives
 
 ! parse command line arguments
 call commandline(length, n_el, order)
@@ -26,17 +34,29 @@ call commandline(length, n_el, order)
 ! initialize problem variables
 call initialize(h, x, n_en, n_el, order, n_nodes)
 
-
-
-
-
-allocate(qp(ceiling((real(order) + 1.0) / 2.0), 2), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of qp array failed."
-
-
 ! initialize the quadrature rule
-call quadrature(order)
+call quadrature(order, n_qp, qp)
 
+
+call phi_val(order, qp, phi)
+
+
+
+
+! write program variables to user
+print *, 'Beginning FEM solve of the heat equation with:'
+print *, 'length: ', length
+print *, 'number of elements: ', n_el
+print *, 'polynomial order: ', order
+print *, 'Total nodes: ', n_nodes
+print *, 'Number of nodes per element: ', n_en
+!print *, 'Domain node locations: ', x
+print *, 'Quadrature points:'
+print *, qp
+print *, 'Phi values:'
+print *, phi(:, 1)
+print *, phi(:, 2)
+print *, phi(:, 3)
 
 
 
@@ -45,15 +65,66 @@ call quadrature(order)
 
 ! deallocate memory 
 deallocate(x)
+deallocate(qp)
+deallocate(phi)
 
 CONTAINS
 
-subroutine quadrature(order)
-  integer, intent(in) :: order
+
+subroutine phi_val(order, qp, phi)
+  integer, intent(in)  :: order
+  real(rk), dimension(:, :), intent(in)  :: qp
+  real(rk), dimension(:, :), allocatable, intent(inout) :: phi
+
+  ! allocate memory for the shape functions - quadrature points
+  ! do not change throughout the simulation
+  allocate(phi(n_qp, order + 1), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
+
+
+  select case(order)
+    case(1)
+      phi(:, 1) = (1.0 - qp(:, 1)) / 2.0
+      phi(:, 2) = (1.0 + qp(:, 1)) / 2.0
+    case(2)
+      phi(:, 1) = qp(:, 1) * (qp(:, 1) - 1.0) / 2.0
+      phi(:, 2) = (1.0 - qp(:, 1)) * (1.0 + qp(:, 1))
+      phi(:, 3) = qp(:, 1) * (qp(:, 1) + 1.0) / 2.0
+    case default
+      STOP "Unsupported polynomial order."
+  end select
+end subroutine phi_val
+
+subroutine quadrature(order, n_qp, qp)
+  implicit none
+
+  integer, intent(in)  :: order
+  integer, intent(out) :: n_qp
+  real (rk), dimension(:, :), allocatable :: qp
+  
+  n_qp = ceiling((real(order) + 1.0) / 2.0)
+
+  allocate(qp(n_qp, 2), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of qp array failed."
+  
+  select case(n_qp)
+    case(1)
+      qp(:, 1) = (/ 0.0 /)
+      qp(:, 2) = (/ 2.0 /)
+    case(2)
+      qp(:, 1) = (/ -1.0/sqrt(3.0), 1.0/sqrt(3.0) /)
+      qp(:, 2) = (/ 1.0, 1.0 /)
+    case(3)
+      qp(:, 1) = (/ -sqrt(3.0/5.0), 0.0, sqrt(3.0/5.0) /)
+      qp(:, 2) = (/ 5.0/9.0, 8.0/9.0, 5.0/9.0 /)
+    case default
+      write(*,*) "Error in selecting quadrature rule."
+  end select
 end subroutine quadrature
 
 
 subroutine commandline(length, n_el, order)
+  implicit none
   ! define subroutine parameters
   real(rk), intent(out) :: length
   integer, intent(out)  :: n_el
@@ -72,11 +143,11 @@ subroutine commandline(length, n_el, order)
     ! use internal reads to convert from character to numeric types
     ! (read from the character buffer into the numeric variable)
     select case (i)
-      case(1) ! length of domain
+      case(1)
         read(args, *) length  
-      case(2) ! number of elements
+      case(2)
         read(args, *) n_el
-      case(3) ! polynomial order
+      case(3)
         read(args, *) order
       case default
         write(*,*) "Too many command line parameters."
@@ -86,12 +157,15 @@ end subroutine commandline
 
 
 subroutine initialize(h, x, n_en, n_el, order, n_nodes)
-  real(rk), intent(out) :: h ! element length
-  real (rk), dimension(:), allocatable, intent(out) :: x ! node coordinates
-  integer, intent(out) :: n_en    ! number of nodes per element
-  integer, intent(in)  :: n_el    ! number of elements
-  integer, intent(in)  :: order   ! polynomial order
-  integer, intent(out) :: n_nodes ! number of total nodes
+  implicit none
+  real(rk), intent(out) :: h 
+  integer, intent(out) :: n_en    
+  integer, intent(in)  :: n_el    
+  integer, intent(in)  :: order   
+  integer, intent(out) :: n_nodes 
+  real (rk), dimension(:), allocatable, intent(out) :: x 
+
+  integer :: i ! looping variable
 
   h = length / real(n_el)
   n_en = order + 1
@@ -101,8 +175,10 @@ subroutine initialize(h, x, n_en, n_el, order, n_nodes)
   allocate(x(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
 
+  do i = 1, size(x)
+    x(i) = real((i - 1)) * h / real((n_en - 1))
+  end do
 end subroutine initialize
-
 
 
 END PROGRAM main
