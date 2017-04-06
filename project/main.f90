@@ -11,7 +11,6 @@ integer, parameter :: rk = selected_real_kind(15, 307)
 ! program variables related to execution
 integer             :: AllocateStatus ! variable to hold memory allocation success
 integer             :: i, j, q        ! loop iteration variables
-real(rk)            :: summ           ! variable to hold summation results
 
 ! program variables related to FEM solve
 integer  :: n_el               ! number of elements
@@ -22,6 +21,7 @@ integer  :: n_qp               ! number of quadrature points
 real(rk) :: length             ! length of the domain (1-D)
 real(rk) :: h                  ! length of one element
 real(rk) :: k                  ! thermal conductivity
+real(rk) :: source             ! uniform heat source
 real(rk) :: theta              ! conjugate gradient coefficient
 real(rk) :: lambda             ! conjugate gradient coefficient
 real(rk) :: convergence        ! difference between successive iterations
@@ -31,6 +31,7 @@ integer, dimension(:, :), allocatable  :: LM     ! location matrix
 real(rk), dimension(:, :), allocatable :: qp     ! quadrature points and weights
 real(rk), dimension(:),    allocatable :: x      ! coordinates of the nodes
 real(rk), dimension(:, :), allocatable :: kel    ! elemental stiffness matrix
+real(rk), dimension(:),    allocatable :: rel    ! elemental load vector
 real(rk), dimension(:, :), allocatable :: phi    ! shape functions
 real(rk), dimension(:, :), allocatable :: dphi   ! shape function derivatives
 real(rk), dimension(:, :), allocatable :: kglob  ! global stiffness matrix
@@ -42,8 +43,9 @@ real(rk), dimension(:),    allocatable :: z      ! conjugate gradient update ite
 real(rk), dimension(:),    allocatable :: zprev  ! conjugate gradient update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
 
-! initialize the thermal conductivity
+! initialize the thermal conductivity and heat source
 k = 1.0
+q = 1.0
 tol = 0.001
 
 ! parse command line arguments
@@ -58,36 +60,30 @@ call quadrature(order, n_qp, qp)
 ! initialize shape function values
 call phi_val(order, qp, phi, dphi)
 
-! form the elemental stiffness matrix
+! form the elemental stiffness matrix and load vector
 allocate(kel(n_en, n_en), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of kel array failed."
 
-kel = 0.0
+allocate(rel(n_en), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of rel array failed."
 
+kel = 0.0
+! only works for 1-D elements
 do q = 1, n_qp
   do i = 1, n_en
+    rel(i) = source * phi(q, i) * h / 2.0
     do j = 1, n_en
-      ! only works for 1-D elements
-      kel(i, j) = kel(i, j) + qp(q, 2) * dphi(q, i) * k * dphi(q, j) * h / 2.0
+      kel(i, j) = qp(q, 2) * dphi(q, i) * k * dphi(q, j) * h / 2.0
     end do
   end do
 end do
 
-! form the location matrix (each column belongs to an element)
-allocate(LM(n_el, n_en), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
-
-do i = 1, n_el
-  do j = 1, n_en
-    LM(i, j) = 1 + (i - 1) * (n_en - 1) + (j - 1)
-  end do
-end do
+! form the location matrix
+call locationmatrix(LM, n_el, n_en)
 
 ! form the global stiffness matrix
 allocate(kglob(n_nodes, n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of kglob array failed."
-allocate(kgloba(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of kgloba array failed."
 
 kglob = 0.0
 
@@ -185,13 +181,21 @@ print *, 'lambda: ', lambda
 deallocate(x, qp, phi, dphi, LM, kglob, rglob, a, res, kgloba)
 CONTAINS
 
-subroutine matvec(matrix, vector, prod)
-real(rk), dimension(:), intent(out)   :: prod
-real(rk), dimension(:), intent(in)    :: vector
-real(rk), dimension(:, :), intent(in) :: matrix
+subroutine locationmatrix(LM, n_el, n_en)
+  integer, dimension(:, :), allocatable, intent(out) :: LM
+  integer, intent(in) :: n_el
+  integer, intent(in) :: n_en
+  integer :: i, j
 
-end subroutine matvec
-
+  allocate(LM(n_el, n_en), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
+  
+  do i = 1, n_el
+    do j = 1, n_en
+      LM(i, j) = 1 + (i - 1) * (n_en - 1) + (j - 1)
+    end do
+  end do
+end subroutine locationmatrix
 
 subroutine phi_val(order, qp, phi, dphi)
   integer, intent(in)  :: order
