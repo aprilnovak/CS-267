@@ -12,6 +12,7 @@ integer, parameter :: rk = selected_real_kind(15, 307)
 
 ! program variables related to execution
 integer             :: AllocateStatus ! variable to hold memory allocation success
+integer             :: i, j, q        ! loop iteration variables
 
 ! program variables related to FEM solve
 real(rk) :: length             ! length of the domain (1-D)
@@ -22,11 +23,14 @@ integer  :: order              ! polynomial order
 integer  :: n_qp               ! number of quadrature points
 real(rk) :: h                  ! length of one element
 real(rk) :: k                  ! thermal conductivity
-real(rk), dimension(:, :), allocatable :: qp  ! quadrature points and weights
-real(rk), dimension(:), allocatable :: x      ! coordinates of the nodes
-real(rk), dimension(:, :), allocatable :: kel ! elemental stiffness matrix
+real(rk), dimension(:, :), allocatable :: qp     ! quadrature points and weights
+real(rk), dimension(:), allocatable :: x         ! coordinates of the nodes
+real(rk), dimension(:, :), allocatable :: kel    ! elemental stiffness matrix
 real(rk), dimension(:, :), allocatable :: phi    ! shape functions
-!real(rk), dimension(:), allocatable :: dphi   ! shape function derivatives
+real(rk), dimension(:, :), allocatable :: dphi   ! shape function derivatives
+
+! initialize the thermal conductivity
+k = 1.0
 
 ! parse command line arguments
 call commandline(length, n_el, order)
@@ -37,11 +41,22 @@ call initialize(h, x, n_en, n_el, order, n_nodes)
 ! initialize the quadrature rule
 call quadrature(order, n_qp, qp)
 
+! initialize shape function values
+call phi_val(order, qp, phi, dphi)
 
-call phi_val(order, qp, phi)
+! form the elemental stiffness matrix
+allocate(kel(n_en, n_en), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of kel array failed."
 
+kel = 0.0
 
-
+do q = 1, n_qp
+  do i = 1, n_en
+    do j = 1, n_en
+      kel(i, j) = kel(i, j) + qp(q, 2) * dphi(q, i) * k * dphi(q, j)
+    end do
+  end do
+end do
 
 ! write program variables to user
 print *, 'Beginning FEM solve of the heat equation with:'
@@ -56,8 +71,11 @@ print *, qp
 print *, 'Phi values:'
 print *, phi(:, 1)
 print *, phi(:, 2)
-print *, phi(:, 3)
-
+print *, 'Derivative values:'
+print *, dphi(:, 1)
+print *, dphi(:, 2)
+print *, 'Elemental stiffness matrix:'
+print *, kel
 
 
 
@@ -67,33 +85,44 @@ print *, phi(:, 3)
 deallocate(x)
 deallocate(qp)
 deallocate(phi)
+deallocate(dphi)
 
 CONTAINS
 
-
-subroutine phi_val(order, qp, phi)
+subroutine phi_val(order, qp, phi, dphi)
   integer, intent(in)  :: order
   real(rk), dimension(:, :), intent(in)  :: qp
   real(rk), dimension(:, :), allocatable, intent(inout) :: phi
+  real(rk), dimension(:, :), allocatable, intent(inout) :: dphi
 
   ! allocate memory for the shape functions - quadrature points
   ! do not change throughout the simulation
   allocate(phi(n_qp, order + 1), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
 
+  ! allocate memory for the shape functions - quadrature points
+  ! do not change throughout the simulation
+  allocate(dphi(n_qp, order + 1), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of dphi array failed."
 
   select case(order)
     case(1)
       phi(:, 1) = (1.0 - qp(:, 1)) / 2.0
       phi(:, 2) = (1.0 + qp(:, 1)) / 2.0
+      dphi(:, 1) = -1.0 / 2.0
+      dphi(:, 2) =  1.0 / 2.0
     case(2)
       phi(:, 1) = qp(:, 1) * (qp(:, 1) - 1.0) / 2.0
       phi(:, 2) = (1.0 - qp(:, 1)) * (1.0 + qp(:, 1))
       phi(:, 3) = qp(:, 1) * (qp(:, 1) + 1.0) / 2.0
+      dphi(:, 1) = (2.0 * qp(:, 1) - 1.0) / 2.0
+      dphi(:, 2) = 1.0 - qp(:, 1) * qp(:, 1)
+      dphi(:, 3) = (2.0 * qp(:, 1) + 1.0) / 2.0
     case default
       STOP "Unsupported polynomial order."
   end select
 end subroutine phi_val
+
 
 subroutine quadrature(order, n_qp, qp)
   implicit none
