@@ -15,19 +15,23 @@ integer             :: AllocateStatus ! variable to hold memory allocation succe
 integer             :: i, j, q        ! loop iteration variables
 
 ! program variables related to FEM solve
-real(rk) :: length             ! length of the domain (1-D)
 integer  :: n_el               ! number of elements
 integer  :: n_en               ! number of nodes per element
 integer  :: n_nodes            ! total number of nodes
 integer  :: order              ! polynomial order
 integer  :: n_qp               ! number of quadrature points
+real(rk) :: length             ! length of the domain (1-D)
 real(rk) :: h                  ! length of one element
 real(rk) :: k                  ! thermal conductivity
+
+integer, dimension(:, :), allocatable  :: LM     ! location matrix
+
 real(rk), dimension(:, :), allocatable :: qp     ! quadrature points and weights
 real(rk), dimension(:), allocatable :: x         ! coordinates of the nodes
 real(rk), dimension(:, :), allocatable :: kel    ! elemental stiffness matrix
 real(rk), dimension(:, :), allocatable :: phi    ! shape functions
 real(rk), dimension(:, :), allocatable :: dphi   ! shape function derivatives
+
 
 ! initialize the thermal conductivity
 k = 1.0
@@ -53,10 +57,28 @@ kel = 0.0
 do q = 1, n_qp
   do i = 1, n_en
     do j = 1, n_en
-      kel(i, j) = kel(i, j) + qp(q, 2) * dphi(q, i) * k * dphi(q, j)
+      ! only works for 1-D elements
+      kel(i, j) = kel(i, j) + qp(q, 2) * dphi(q, i) * k * dphi(q, j) * h / 2.0
     end do
   end do
 end do
+
+! form the location matrix (each column belongs to an element)
+allocate(LM(n_el, n_en), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
+
+do i = 1, n_el
+  do j = 1, n_en
+    LM(i, j) = 1 + (i - 1) * (n_en - 1) + (j - 1)
+  end do
+end do
+
+
+
+
+
+
+
 
 ! write program variables to user
 print *, 'Beginning FEM solve of the heat equation with:'
@@ -76,8 +98,9 @@ print *, dphi(:, 1)
 print *, dphi(:, 2)
 print *, 'Elemental stiffness matrix:'
 print *, kel
-
-
+print *, 'Location matrix:'
+print *, LM(1, :)
+print *, LM(2, :)
 
 
 
@@ -86,7 +109,7 @@ deallocate(x)
 deallocate(qp)
 deallocate(phi)
 deallocate(dphi)
-
+deallocate(LM)
 CONTAINS
 
 subroutine phi_val(order, qp, phi, dphi)
@@ -119,7 +142,7 @@ subroutine phi_val(order, qp, phi, dphi)
       dphi(:, 2) = 1.0 - qp(:, 1) * qp(:, 1)
       dphi(:, 3) = (2.0 * qp(:, 1) + 1.0) / 2.0
     case default
-      STOP "Unsupported polynomial order."
+      write(*,*) "phi and dphi not initialized due to polynomial order not being supported."
   end select
 end subroutine phi_val
 
