@@ -26,8 +26,8 @@ real(rk) :: theta              ! conjugate gradient coefficient
 real(rk) :: lambda             ! conjugate gradient coefficient
 real(rk) :: convergence        ! difference between successive iterations
 real(rk) :: tol                ! conjugate gradient convergence tolerance
-integer, dimension(:, :), allocatable  :: LM     ! location matrix
 
+integer,  dimension(:, :), allocatable :: LM     ! location matrix
 real(rk), dimension(:, :), allocatable :: qp     ! quadrature points and weights
 real(rk), dimension(:),    allocatable :: x      ! coordinates of the nodes
 real(rk), dimension(:, :), allocatable :: kel    ! elemental stiffness matrix
@@ -35,7 +35,6 @@ real(rk), dimension(:),    allocatable :: rel    ! elemental load vector
 real(rk), dimension(:, :), allocatable :: phi    ! shape functions
 real(rk), dimension(:, :), allocatable :: dphi   ! shape function derivatives
 real(rk), dimension(:, :), allocatable :: kglob  ! global stiffness matrix
-real(rk), dimension(:),    allocatable :: kgloba ! global stiffness matrix times a
 real(rk), dimension(:),    allocatable :: rglob  ! global load vector
 real(rk), dimension(:),    allocatable :: a      ! conjugate gradient solution iterates
 real(rk), dimension(:),    allocatable :: aprev  ! conjugate gradient solution iterates
@@ -45,20 +44,13 @@ real(rk), dimension(:),    allocatable :: res    ! solution residual
 
 ! initialize the thermal conductivity and heat source
 k = 1.0
-q = 1.0
+source = 1.0
 tol = 0.001
 
-! parse command line arguments
-call commandline(length, n_el, order)
-
-! initialize problem variables
-call initialize(h, x, n_en, n_el, order, n_nodes)
-
-! initialize the quadrature rule
-call quadrature(order, n_qp, qp)
-
-! initialize shape function values
-call phi_val(order, qp, phi, dphi)
+call commandline(length, n_el, order)              ! parse command line arguments
+call initialize(h, x, n_en, n_el, order, n_nodes)  ! initialize problem variables
+call quadrature(order, n_qp, qp)                   ! initialize quadrature rule
+call phi_val(order, qp, phi, dphi)                 ! initialize shape functions
 
 ! form the elemental stiffness matrix and load vector
 allocate(kel(n_en, n_en), stat = AllocateStatus)
@@ -68,12 +60,13 @@ allocate(rel(n_en), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rel array failed."
 
 kel = 0.0
+rel = 0.0
 ! only works for 1-D elements
 do q = 1, n_qp
   do i = 1, n_en
-    rel(i) = source * phi(q, i) * h / 2.0
+    rel(i) = rel(i) + qp(q, 2) * source * phi(q, i) * h / 2.0
     do j = 1, n_en
-      kel(i, j) = qp(q, 2) * dphi(q, i) * k * dphi(q, j) * h / 2.0
+      kel(i, j) = kel(i, j) + qp(q, 2) * dphi(q, i) * k * dphi(q, j) * 2.0 / h
     end do
   end do
 end do
@@ -160,14 +153,10 @@ print *, 'Number of nodes per element: ', n_en
 !print *, 'Domain node locations: ', x
 print *, 'Quadrature points:'
 print *, qp
-print *, 'Phi values:'
-print *, phi(:, 1)
-print *, phi(:, 2)
-print *, 'Derivative values:'
-print *, dphi(:, 1)
-print *, dphi(:, 2)
-print *, 'Elemental stiffness matrix:'
-print *, kel
+print *, 'Phi values:', phi(:, :)
+print *, 'Derivative values:', dphi(:, :)
+print *, 'Elemental stiffness matrix:', kel(:, :)
+print *, 'Elemental load vector:', rel(:)
 print *, 'Location matrix:'
 print *, LM(1, :)
 print *, LM(2, :)
@@ -177,8 +166,12 @@ print *, kglob(:, 2)
 print *, kglob(:, 3)
 print *, 'lambda: ', lambda
 
+
 ! deallocate memory 
-deallocate(x, qp, phi, dphi, LM, kglob, rglob, a, res, kgloba)
+deallocate(qp, x, kel, rel, phi, dphi, kglob, rglob, a, aprev, z, zprev, res)
+
+
+
 CONTAINS
 
 subroutine locationmatrix(LM, n_el, n_en)
@@ -192,7 +185,7 @@ subroutine locationmatrix(LM, n_el, n_en)
   
   do i = 1, n_el
     do j = 1, n_en
-      LM(i, j) = 1 + (i - 1) * (n_en - 1) + (j - 1)
+LM(i, j) = 1 + (i - 1) * (n_en - 1) + (j - 1)
     end do
   end do
 end subroutine locationmatrix
@@ -239,7 +232,8 @@ subroutine quadrature(order, n_qp, qp)
   integer, intent(out) :: n_qp
   real (rk), dimension(:, :), allocatable :: qp
   
-  n_qp = ceiling((real(order) + 1.0) / 2.0)
+  n_qp = 2
+  !n_qp = ceiling((real(order) + 1.0) / 2.0)
 
   allocate(qp(n_qp, 2), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of qp array failed."
