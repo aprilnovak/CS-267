@@ -122,29 +122,21 @@ rglob(n_nodes) = 1.0             ! right BC value
 
 
 ! initialize first guess to zero
-a = 0.0
-
-! compute residual
-res = rglob - matmul(kglob, a)
-
-! compute z - first iteration sets equal to res(1)
-zprev = res
-
-! compute lambda
+a      = 0.0
+res    = rglob - matmul(kglob, a)
+zprev  = res
 lambda = dot_product(zprev, res) / dot_product(zprev, matmul(kglob, zprev))
-
-! compute first update
-a = a + lambda * zprev
+a      = a + lambda * zprev
 
 convergence = 2.0 ! dummy initial value
 do while (convergence > tol)
-  aprev = a
-  res = rglob - matmul(kglob, a)
-  theta = - dot_product(res, matmul(kglob, zprev)) / dot_product(zprev, matmul(kglob, zprev))
-  z = res + theta * zprev
+  aprev  = a
+  res    = rglob - matmul(kglob, a)
+  theta  = - dot_product(res, matmul(kglob, zprev)) / dot_product(zprev, matmul(kglob, zprev))
+  z      = res + theta * zprev
   lambda = dot_product(z, res) / dot_product(z, matmul(kglob, z))
-  a = a + lambda * z
-  zprev = z
+  a      = a + lambda * z
+  zprev  = z
   
   convergence = 0.0
   do i = 1, n_nodes
@@ -154,8 +146,11 @@ do while (convergence > tol)
   print *, 'error: ', convergence
 end do
 
+! write to an output file for plotting. If this file exists, it will be re-written.
+open(1, file='output.txt', iostat=AllocateStatus, status="replace")
+if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 
-
+write(1, *) a(:)
 
 
 
