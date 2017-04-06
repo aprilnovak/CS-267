@@ -1,6 +1,4 @@
 ! program to solve the heat equation (Dirichlet boundary conditions only)
-
-
 PROGRAM main
 
 ! turn off implicit typing
@@ -13,6 +11,7 @@ integer, parameter :: rk = selected_real_kind(15, 307)
 ! program variables related to execution
 integer             :: AllocateStatus ! variable to hold memory allocation success
 integer             :: i, j, q        ! loop iteration variables
+real(rk)            :: summ           ! variable to hold summation results
 
 ! program variables related to FEM solve
 integer  :: n_el               ! number of elements
@@ -23,7 +22,10 @@ integer  :: n_qp               ! number of quadrature points
 real(rk) :: length             ! length of the domain (1-D)
 real(rk) :: h                  ! length of one element
 real(rk) :: k                  ! thermal conductivity
-
+real(rk) :: theta              ! conjugate gradient coefficient
+real(rk) :: lambda             ! conjugate gradient coefficient
+real(rk) :: convergence        ! difference between successive iterations
+real(rk) :: tol                ! conjugate gradient convergence tolerance
 integer, dimension(:, :), allocatable  :: LM     ! location matrix
 
 real(rk), dimension(:, :), allocatable :: qp     ! quadrature points and weights
@@ -32,9 +34,17 @@ real(rk), dimension(:, :), allocatable :: kel    ! elemental stiffness matrix
 real(rk), dimension(:, :), allocatable :: phi    ! shape functions
 real(rk), dimension(:, :), allocatable :: dphi   ! shape function derivatives
 real(rk), dimension(:, :), allocatable :: kglob  ! global stiffness matrix
+real(rk), dimension(:),    allocatable :: kgloba ! global stiffness matrix times a
+real(rk), dimension(:),    allocatable :: rglob  ! global load vector
+real(rk), dimension(:),    allocatable :: a      ! conjugate gradient solution iterates
+real(rk), dimension(:),    allocatable :: aprev  ! conjugate gradient solution iterates
+real(rk), dimension(:),    allocatable :: z      ! conjugate gradient update iterates
+real(rk), dimension(:),    allocatable :: zprev  ! conjugate gradient update iterates
+real(rk), dimension(:),    allocatable :: res    ! solution residual
 
 ! initialize the thermal conductivity
 k = 1.0
+tol = 0.001
 
 ! parse command line arguments
 call commandline(length, n_el, order)
@@ -76,6 +86,8 @@ end do
 ! form the global stiffness matrix
 allocate(kglob(n_nodes, n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of kglob array failed."
+allocate(kgloba(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of kgloba array failed."
 
 kglob = 0.0
 
@@ -85,6 +97,61 @@ do q = 1, n_el
       kglob(LM(q, i), LM(q, j)) = kglob(LM(q, i), LM(q, j)) + kel(i, j)
     end do
   end do
+end do
+
+! conjugate gradient solver for solving kglob * a = rglob
+! for Neumann boundary conditions, rglob should be all zeros
+allocate(rglob(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
+
+allocate(a(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of a array failed."
+
+allocate(res(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of res array failed."
+
+rglob = 0.0
+kglob(1, 1) = 1.0                ! set up left BC              
+kglob(n_nodes, n_nodes) = 1.0    ! set up right BC
+rglob(1) = 2.0                   ! left BC value
+rglob(n_nodes) = 1.0             ! right BC value     
+
+
+
+
+
+
+! initialize first guess to zero
+a = 0.0
+
+! compute residual
+res = rglob - matmul(kglob, a)
+
+! compute z - first iteration sets equal to res(1)
+zprev = res
+
+! compute lambda
+lambda = dot_product(zprev, res) / dot_product(zprev, matmul(kglob, zprev))
+
+! compute first update
+a = a + lambda * zprev
+
+convergence = 2.0 ! dummy initial value
+do while (convergence > tol)
+  aprev = a
+  res = rglob - matmul(kglob, a)
+  theta = - dot_product(res, matmul(kglob, zprev)) / dot_product(zprev, matmul(kglob, zprev))
+  z = res + theta * zprev
+  lambda = dot_product(z, res) / dot_product(z, matmul(kglob, z))
+  a = a + lambda * z
+  zprev = z
+  
+  convergence = 0.0
+  do i = 1, n_nodes
+    convergence = convergence + abs(a(i) - aprev(i))
+  end do
+  
+  print *, 'error: ', convergence
 end do
 
 
@@ -117,11 +184,19 @@ print *, 'Global matrix:'
 print *, kglob(:, 1)
 print *, kglob(:, 2)
 print *, kglob(:, 3)
-
+print *, 'lambda: ', lambda
 
 ! deallocate memory 
-deallocate(x, qp, phi, dphi, LM, kglob)
+deallocate(x, qp, phi, dphi, LM, kglob, rglob, a, res, kgloba)
 CONTAINS
+
+subroutine matvec(matrix, vector, prod)
+real(rk), dimension(:), intent(out)   :: prod
+real(rk), dimension(:), intent(in)    :: vector
+real(rk), dimension(:, :), intent(in) :: matrix
+
+end subroutine matvec
+
 
 subroutine phi_val(order, qp, phi, dphi)
   integer, intent(in)  :: order
