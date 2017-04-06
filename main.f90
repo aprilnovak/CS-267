@@ -27,11 +27,11 @@ real(rk) :: k                  ! thermal conductivity
 integer, dimension(:, :), allocatable  :: LM     ! location matrix
 
 real(rk), dimension(:, :), allocatable :: qp     ! quadrature points and weights
-real(rk), dimension(:), allocatable :: x         ! coordinates of the nodes
+real(rk), dimension(:),    allocatable :: x      ! coordinates of the nodes
 real(rk), dimension(:, :), allocatable :: kel    ! elemental stiffness matrix
 real(rk), dimension(:, :), allocatable :: phi    ! shape functions
 real(rk), dimension(:, :), allocatable :: dphi   ! shape function derivatives
-
+real(rk), dimension(:, :), allocatable :: kglob  ! global stiffness matrix
 
 ! initialize the thermal conductivity
 k = 1.0
@@ -73,7 +73,19 @@ do i = 1, n_el
   end do
 end do
 
+! form the global stiffness matrix
+allocate(kglob(n_nodes, n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of kglob array failed."
 
+kglob = 0.0
+
+do q = 1, n_el
+  do i = 1, n_en
+    do j = 1, n_en
+      kglob(LM(q, i), LM(q, j)) = kglob(LM(q, i), LM(q, j)) + kel(i, j)
+    end do
+  end do
+end do
 
 
 
@@ -101,15 +113,14 @@ print *, kel
 print *, 'Location matrix:'
 print *, LM(1, :)
 print *, LM(2, :)
-
+print *, 'Global matrix:'
+print *, kglob(:, 1)
+print *, kglob(:, 2)
+print *, kglob(:, 3)
 
 
 ! deallocate memory 
-deallocate(x)
-deallocate(qp)
-deallocate(phi)
-deallocate(dphi)
-deallocate(LM)
+deallocate(x, qp, phi, dphi, LM, kglob)
 CONTAINS
 
 subroutine phi_val(order, qp, phi, dphi)
