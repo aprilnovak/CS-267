@@ -51,7 +51,7 @@ real(rk), dimension(:),    allocatable :: res    ! solution residual
 
 ! initialize the thermal conductivity and heat source
 k = 1.0
-source = 0.0
+source = 1.0
 tol = 0.001
 
 call commandline(length, n_el, order)              ! parse command line arguments
@@ -69,9 +69,9 @@ kel = 0.0
 rel = 0.0
 do q = 1, n_qp
   do i = 1, n_en
-    rel(i) = rel(i) + wt(q) * source * phi(i, q) * h / 2.0
+    rel(i) = rel(i) + wt(q) * source * phi(i, q) * h *h / 2.0
     do j = 1, n_en
-      kel(i, j) = kel(i, j) + wt(q) * dphi(i, q) * k * dphi(j, q) * 2.0 / h
+      kel(i, j) = kel(i, j) + wt(q) * dphi(i, q) * k * dphi(j, q) * 2.0
     end do
   end do
 end do
