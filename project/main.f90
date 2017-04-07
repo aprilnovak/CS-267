@@ -46,9 +46,11 @@ real(rk), dimension(:),    allocatable :: res    ! solution residual
 
 integer, dimension(5, 5) :: B   
 integer, dimension(5)    :: D   
+integer, dimension(5)    :: re
 integer, dimension(13)    :: val
 integer, dimension(13)    :: ind
-
+integer, dimension(6)     :: pt
+integer :: pt1, pt2
 ! initialize the thermal conductivity and heat source
 k = 1.0
 source = 1.0
@@ -59,16 +61,24 @@ tol = 0.001
 B(1, :) = (/1, 2, 3, 0, 0 /)
 B(2, :) = (/0, 4, 5, 6, 0 /)
 B(3, :) = (/0, 0, 7, 8, 9 /)
-B(4, :) = (/0, 0, 1, 2, 0 /)
-B(5, :) = (/1, 2, 0, 0, 0 /)
+B(4, :) = (/0, 10, 0, 11, 0 /)
+B(5, :) = (/12, 13, 0, 0, 0 /)
 
 D = (/1, 2, 3, 4, 5/)
 print *, matmul(B, D)
 
-val = (/ 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 1, 2 /)
-ind = (/1, 2, 3, 2, 3, 4, 3, 4, 5, 3, 4, 1, 2 /)
+val = (/ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 /)
+ind = (/ 1, 2, 3, 2, 3, 4, 3, 4, 5, 2, 4, 1, 2 /)
+pt  = (/ 1, 4, 7, 10, 12, size(val) + 1 /)
 
+! perform multiplication
+do i = 1, 5 ! for each row of the sparse matrix
+  pt1 = pt(i)
+  pt2 = pt(i + 1) - 1
+  re(i) = dot_product(val(pt1:pt2), D(ind(pt1:pt2)))
+end do
 
+print *, 'sparse multiplication result: ', re(:)
 
 
 call commandline(length, n_el, order, leftBC, rightBC) ! parse command line arguments
