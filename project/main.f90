@@ -51,7 +51,22 @@ tol = 0.001
 call commandline(length, n_el, order, leftBC, rightBC) ! parse command line arguments
 call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem variables
 call quadrature(order, n_qp, qp, wt)                   ! initialize quadrature rule
-call phi_val(order, qp, phi, dphi)                     ! initialize shape functions
+
+! allocate memory for the shape functions - quadrature points
+! do not change throughout the simulation
+allocate(phi(order + 1, n_qp), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
+
+! allocate memory for the shape functions - quadrature points
+! do not change throughout the simulation
+allocate(dphi(order + 1, n_qp), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of dphi array failed."
+
+
+
+
+
+call phi_val(order, qp)                     ! initialize shape functions
 
 ! form the elemental stiffness matrix and load vector
 allocate(kel(n_en, n_en), stat = AllocateStatus)
@@ -164,22 +179,11 @@ subroutine locationmatrix()
 end subroutine locationmatrix
 
 
-subroutine phi_val(order, qp, phi, dphi)
+subroutine phi_val(order, qp)
+! populate phi and dphi, which are global to the calling program
   implicit none
   integer, intent(in)  :: order
-  real(rk), dimension(:), intent(in)  :: qp
-  real(rk), dimension(:, :), allocatable, intent(inout) :: phi
-  real(rk), dimension(:, :), allocatable, intent(inout) :: dphi
-
-  ! allocate memory for the shape functions - quadrature points
-  ! do not change throughout the simulation
-  allocate(phi(order + 1, n_qp), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
-
-  ! allocate memory for the shape functions - quadrature points
-  ! do not change throughout the simulation
-  allocate(dphi(order + 1, n_qp), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of dphi array failed."
+  real(rk), intent(in)  :: qp(:)
 
   select case(order)
     case(1)
