@@ -43,10 +43,33 @@ real(rk), dimension(:),    allocatable :: z      ! conjugate gradient update ite
 real(rk), dimension(:),    allocatable :: zprev  ! conjugate gradient update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
 
+
+integer, dimension(5, 5) :: B   
+integer, dimension(5)    :: D   
+integer, dimension(13)    :: val
+integer, dimension(13)    :: ind
+
 ! initialize the thermal conductivity and heat source
 k = 1.0
 source = 1.0
 tol = 0.001
+
+
+! experiment with sparse matrix - dense vector multiplication
+B(1, :) = (/1, 2, 3, 0, 0 /)
+B(2, :) = (/0, 4, 5, 6, 0 /)
+B(3, :) = (/0, 0, 7, 8, 9 /)
+B(4, :) = (/0, 0, 1, 2, 0 /)
+B(5, :) = (/1, 2, 0, 0, 0 /)
+
+D = (/1, 2, 3, 4, 5/)
+print *, matmul(B, D)
+
+val = (/ 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 1, 2 /)
+ind = (/1, 2, 3, 2, 3, 4, 3, 4, 5, 3, 4, 1, 2 /)
+
+
+
 
 call commandline(length, n_el, order, leftBC, rightBC) ! parse command line arguments
 call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem variables
