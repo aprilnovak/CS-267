@@ -76,7 +76,7 @@ if (AllocateStatus /= 0) STOP "Allocation of rel array failed."
 
 kel = 0.0
 rel = 0.0
-do q = 1, n_qp
+do q = 1, n_qp ! quadrature point is slowest varying
   do i = 1, n_en
     rel(i) = rel(i) + wt(q) * source * phi(i, q) * h *h / 2.0
     do j = 1, n_en
@@ -86,7 +86,7 @@ do q = 1, n_qp
 end do
 
 ! form the location matrix
-allocate(LM(n_el, n_en), stat = AllocateStatus)
+allocate(LM(n_en, n_el), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
 call locationmatrix()
 
@@ -96,13 +96,16 @@ if (AllocateStatus /= 0) STOP "Allocation of kglob array failed."
 allocate(rglob(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
 
+
+! populate global matrices element by element so that
+!  elements in LM are accessed by column (fastest)
 kglob = 0.0
 rglob = 0.0
 do q = 1, n_el
   do i = 1, n_en
-    rglob(LM(q, i)) = rglob(LM(q, i)) + rel(i)
+    rglob(LM(i, q)) = rglob(LM(i, q)) + rel(i)
     do j = 1, n_en
-      kglob(LM(q, i), LM(q, j)) = kglob(LM(q, i), LM(q, j)) + kel(i, j)
+      kglob(LM(i, q), LM(j, q)) = kglob(LM(i, q), LM(j, q)) + kel(i, j)
     end do
   end do
 end do
@@ -168,12 +171,13 @@ CONTAINS ! define all internal procedures
 
 subroutine locationmatrix()
   ! forms the location matrix, which is global in the calling program
+  ! fills column-by-column (each column pertains to an element)
   implicit none
-  integer               :: i, j       ! looping variables
+  integer :: i, j       ! looping variables
   
-  do i = 1, n_el
-    do j = 1, n_en
-      LM(i, j) = 1 + (i - 1) * (n_en - 1) + (j - 1)
+  do j = 1, n_el
+    do i = 1, n_en
+      LM(i, j) = (j - 1) * (n_en - 1) + i
     end do
   end do
 end subroutine locationmatrix
@@ -182,7 +186,7 @@ end subroutine locationmatrix
 subroutine phi_val(order, qp)
 ! populate phi and dphi, which are global to the calling program
   implicit none
-  integer, intent(in)  :: order
+  integer,  intent(in)  :: order
   real(rk), intent(in)  :: qp(:)
 
   select case(order)
