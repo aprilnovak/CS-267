@@ -123,12 +123,14 @@ print *, 'solving matrix system: kglob: '
 print *, kglob(1, :)
 print *, kglob(2, :)
 print *, kglob(3, :)
+print *, kglob(4, :)
 !print *, 'with load vector: ', rglob(:)
 
 ! conjugate gradient solver for solving kglob * a = rglob
-aprev  = 0.0
+aprev  = 1.0
 res    = rglob - matmul(kglob, aprev)
 zprev  = res
+print *, 'first residual: ', res, '\n'
 
 ! if we hit it on the head, then don't do any more iterations
 ! check to make sure the residual is not already zero
@@ -138,7 +140,6 @@ end if
 
 lambda = dot_product(zprev, res) / dot_product(zprev, matmul(kglob, zprev))
 a      = aprev + lambda * zprev
-print *, 'first residual: ', res, '\n'
 !print *, 'lambda: ', lambda
 print *, 'first update: ', a
 
@@ -147,20 +148,14 @@ do i = 1, n_nodes
   convergence = convergence + abs(a(i) - aprev(i))
 end do
 
-print *, convergence
-
 j = 1
 do while (convergence > tol)
+!do while (j < 10)
   aprev  = a
-  res    = rglob - matmul(kglob, a)
+  res    = rglob - matmul(kglob, aprev)
   print *, 'next residual: ', res
 
   theta  = - dot_product(res, matmul(kglob, zprev)) / dot_product(zprev, matmul(kglob, zprev))
-
-  !if (theta <= epsilon(1.0)) then
-  !  exit
-  !end if
-
   z      = res + theta * zprev
   lambda = dot_product(z, res) / dot_product(z, matmul(kglob, z))
   a      = a + lambda * z
