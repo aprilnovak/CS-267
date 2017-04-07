@@ -43,7 +43,7 @@ real(rk), dimension(:),    allocatable :: z      ! conjugate gradient update ite
 real(rk), dimension(:),    allocatable :: zprev  ! conjugate gradient update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
 
-
+integer, dimension(:), allocatable :: LMcount ! number of times each node number appears
 integer, dimension(5, 5) :: B   
 integer, dimension(5)    :: D   
 integer, dimension(5)    :: re
@@ -67,19 +67,9 @@ B(5, :) = (/12, 13, 0, 0, 0 /)
 D = (/1, 2, 3, 4, 5/)
 print *, matmul(B, D)
 
-val = (/ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 /)
+!val = (/ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 /)
 ind = (/ 1, 2, 3, 2, 3, 4, 3, 4, 5, 2, 4, 1, 2 /)
 pt  = (/ 1, 4, 7, 10, 12, size(val) + 1 /)
-
-! perform multiplication
-do i = 1, 5 ! for each row of the sparse matrix
-  pt1 = pt(i)
-  pt2 = pt(i + 1) - 1
-  re(i) = dot_product(val(pt1:pt2), D(ind(pt1:pt2)))
-end do
-
-print *, 'sparse multiplication result: ', re(:)
-
 
 call commandline(length, n_el, order, leftBC, rightBC) ! parse command line arguments
 call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem variables
@@ -121,6 +111,8 @@ end do
 ! form the location matrix
 allocate(LM(n_en, n_el), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
+allocate(LMcount(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of LMcount array failed."
 call locationmatrix()
 
 ! form the global stiffness matrix and global load vector
@@ -131,7 +123,7 @@ if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
 
 
 ! populate global matrices element by element so that
-!  elements in LM are accessed by column (fastest)
+! elements in LM are accessed by column (fastest)
 kglob = 0.0
 rglob = 0.0
 do q = 1, n_el
@@ -142,6 +134,38 @@ do q = 1, n_el
     end do
   end do
 end do
+
+print *, 'kglob times D: ', matmul(kglob, D)
+print *, 'kglob: '
+
+do i = 1, n_nodes
+  print *, kglob(i,:)
+end do
+
+! for now, this only works for 1-D FEM problems where we know the 
+! global array structure
+
+! loop over the LM columns and count number of times each node appears
+! (for each element)
+LMcount = 0
+do i = 1, n_en
+  do j = 1, n_el
+    LMcount(LM(i, j)) = LMcount(LM(i, j)) + 1
+  end do
+end do
+
+print *, 'number of elements that share the nodes: ', LMcount
+
+
+! perform multiplication
+do i = 1, 5 ! for each row of the sparse matrix
+  pt1 = pt(i)
+  pt2 = pt(i + 1) - 1
+  re(i) = dot_product(val(pt1:pt2), D(ind(pt1:pt2)))
+end do
+
+print *, 'sparse multiplication result: ', re(:)
+
 
 allocate(a(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of a array failed."
