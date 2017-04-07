@@ -8,8 +8,8 @@ implicit none
 ! and an exponent range of +- 307
 integer, parameter :: rk = selected_real_kind(15, 307)
 
-integer             :: AllocateStatus ! variable to hold memory allocation success
-integer             :: i, j, q        ! loop iteration variables
+integer  :: AllocateStatus ! variable to hold memory allocation success
+integer  :: i, j, q        ! loop iteration variables
 
 integer  :: n_el               ! number of elements
 integer  :: n_en               ! number of nodes per element
@@ -20,6 +20,8 @@ real(rk) :: length             ! length of the domain (1-D)
 real(rk) :: h                  ! length of one element
 real(rk) :: k                  ! thermal conductivity
 real(rk) :: source             ! uniform heat source
+real(rk) :: leftBC             ! left Dirichlet boundary condition value
+real(rk) :: rightBC            ! right Dirichlet boundary condition value
 real(rk) :: theta              ! conjugate gradient coefficient
 real(rk) :: lambda             ! conjugate gradient coefficient
 real(rk) :: convergence        ! difference between successive iterations
@@ -46,10 +48,10 @@ k = 1.0
 source = 1.0
 tol = 0.001
 
-call commandline(length, n_el, order)              ! parse command line arguments
-call initialize(h, x, n_en, n_el, order, n_nodes)  ! initialize problem variables
-call quadrature(order, n_qp, qp, wt)               ! initialize quadrature rule
-call phi_val(order, qp, phi, dphi)                 ! initialize shape functions
+call commandline(length, n_el, order, leftBC, rightBC) ! parse command line arguments
+call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem variables
+call quadrature(order, n_qp, qp, wt)                   ! initialize quadrature rule
+call phi_val(order, qp, phi, dphi)                     ! initialize shape functions
 
 ! form the elemental stiffness matrix and load vector
 allocate(kel(n_en, n_en), stat = AllocateStatus)
@@ -69,7 +71,9 @@ do q = 1, n_qp
 end do
 
 ! form the location matrix
-call locationmatrix(LM, n_el, n_en)
+allocate(LM(n_el, n_en), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
+call locationmatrix()
 
 ! form the global stiffness matrix and global load vector
 allocate(kglob(n_nodes, n_nodes), stat = AllocateStatus)
@@ -104,19 +108,18 @@ kglob(1, :) = 0.0
 kglob(n_nodes, :) = 0.0
 kglob(1, 1) = 1.0                ! set up left BC              
 kglob(n_nodes, n_nodes) = 1.0    ! set up right BC
-rglob(1) = 2.0                   ! left BC value
-rglob(n_nodes) = 1.0             ! right BC value     
+rglob(1) = leftBC                ! left BC value
+rglob(n_nodes) = rightBC         ! right BC value     
 
 
 ! conjugate gradient solver for solving kglob * a = rglob
-aprev  = 1.0
-res    = rglob - matmul(kglob, aprev)
-zprev  = res
-
-lambda = dot_product(zprev, res) / dot_product(zprev, matmul(kglob, zprev))
-a      = aprev + lambda * zprev
-
+aprev       = 1.0
+res         = rglob - matmul(kglob, aprev)
+zprev       = res
+lambda      = dot_product(zprev, res) / dot_product(zprev, matmul(kglob, zprev))
+a           = aprev + lambda * zprev
 convergence = 0.0
+
 do i = 1, n_nodes
   convergence = convergence + abs(a(i) - aprev(i))
 end do
@@ -124,7 +127,6 @@ end do
 do while (convergence > tol)
   aprev  = a
   res    = rglob - matmul(kglob, aprev)
-
   theta  = - dot_product(res, matmul(kglob, zprev)) / dot_product(zprev, matmul(kglob, zprev))
   z      = res + theta * zprev
   lambda = dot_product(z, res) / dot_product(z, matmul(kglob, z))
@@ -135,7 +137,6 @@ do while (convergence > tol)
   do i = 1, n_nodes
     convergence = convergence + abs(a(i) - aprev(i))
   end do
-  
 end do
 
 ! write to an output file for plotting. If this file exists, it will be re-written.
@@ -148,17 +149,12 @@ deallocate(qp, wt, x, kel, rel, phi, dphi, kglob, rglob, a, aprev, z, zprev, res
 
 
 
-CONTAINS
+CONTAINS ! define all internal procedures
 
-subroutine locationmatrix(LM, n_el, n_en)
+subroutine locationmatrix()
+  ! forms the location matrix, which is global in the calling program
   implicit none
-  integer, dimension(:, :), allocatable, intent(out) :: LM
-  integer, intent(in) :: n_el
-  integer, intent(in) :: n_en
-  integer :: i, j
-
-  allocate(LM(n_el, n_en), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
+  integer               :: i, j       ! looping variables
   
   do i = 1, n_el
     do j = 1, n_en
@@ -236,11 +232,13 @@ subroutine quadrature(order, n_qp, qp, wt)
 end subroutine quadrature
 
 
-subroutine commandline(length, n_el, order)
+subroutine commandline(length, n_el, order, leftBC, rightBC)
   implicit none
   real(rk), intent(out) :: length
   integer, intent(out)  :: n_el
   integer, intent(out)  :: order
+  real(rk), intent(out) :: leftBC
+  real(rk), intent(out) :: rightBC
  
   ! define local variables 
   integer :: nargs            ! number of command line arguments
@@ -261,6 +259,10 @@ subroutine commandline(length, n_el, order)
         read(args, *) n_el
       case(3)
         read(args, *) order
+      case(4)
+        read(args, *) leftBC
+      case(5)
+        read(args, *) rightBC
       case default
         write(*,*) "Too many command line parameters."
     end select  
