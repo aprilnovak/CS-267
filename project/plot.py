@@ -10,5 +10,5 @@ data = [raw[i] for i in range(0, len(raw) - 1) if raw[i] != '']
 data = [float(data[i]) for i in range(0, len(data))]
 
 x = np.linspace(0.0, 1.0, len(data))
-plt.plot(x, data)
+plt.plot(x, data, '*-')
 plt.show()
