@@ -156,6 +156,15 @@ end do
 
 print *, 'number of elements that share the nodes: ', LMcount
 
+j = 1
+do i = 1, n_nodes + 1
+  pt(i) = j
+  j = j + n_en + LMcount(i) - 1
+end do
+
+print *, 'starting numbers of each row: ', pt
+
+
 
 ! perform multiplication
 do i = 1, 5 ! for each row of the sparse matrix
