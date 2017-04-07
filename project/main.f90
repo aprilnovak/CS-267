@@ -8,11 +8,9 @@ implicit none
 ! and an exponent range of +- 307
 integer, parameter :: rk = selected_real_kind(15, 307)
 
-! program variables related to execution
 integer             :: AllocateStatus ! variable to hold memory allocation success
 integer             :: i, j, q        ! loop iteration variables
 
-! program variables related to FEM solve
 integer  :: n_el               ! number of elements
 integer  :: n_en               ! number of nodes per element
 integer  :: n_nodes            ! total number of nodes
@@ -44,7 +42,7 @@ real(rk), dimension(:),    allocatable :: res    ! solution residual
 
 ! initialize the thermal conductivity and heat source
 k = 1.0
-source = 1.0
+source = 0.0
 tol = 0.001
 
 call commandline(length, n_el, order)              ! parse command line arguments
@@ -55,7 +53,6 @@ call phi_val(order, qp, phi, dphi)                 ! initialize shape functions
 ! form the elemental stiffness matrix and load vector
 allocate(kel(n_en, n_en), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of kel array failed."
-
 allocate(rel(n_en), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rel array failed."
 
@@ -74,50 +71,73 @@ end do
 ! form the location matrix
 call locationmatrix(LM, n_el, n_en)
 
-! form the global stiffness matrix
+! form the global stiffness matrix and global load vector
 allocate(kglob(n_nodes, n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of kglob array failed."
+allocate(rglob(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
 
 kglob = 0.0
-
+rglob = 0.0
 do q = 1, n_el
   do i = 1, n_en
+    rglob(LM(q, i)) = rglob(LM(q, i)) + rel(i)
     do j = 1, n_en
       kglob(LM(q, i), LM(q, j)) = kglob(LM(q, i), LM(q, j)) + kel(i, j)
     end do
   end do
 end do
 
-! conjugate gradient solver for solving kglob * a = rglob
-! for Neumann boundary conditions, rglob should be all zeros
-allocate(rglob(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
 
 allocate(a(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of a array failed."
+allocate(aprev(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of aprev array failed."
+allocate(z(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of z array failed."
+allocate(zprev(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of zprev array failed."
 
 allocate(res(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of res array failed."
 
-rglob = 0.0
+
+kglob(1, :) = 0.0
 kglob(1, 1) = 1.0                ! set up left BC              
+
+kglob(n_nodes, :) = 0.0
 kglob(n_nodes, n_nodes) = 1.0    ! set up right BC
+
 rglob(1) = 2.0                   ! left BC value
 rglob(n_nodes) = 1.0             ! right BC value     
 
 
+!print *, 'solving matrix system: kglob: ', kglob(:, :)
+!print *, 'with load vector: ', rglob(:)
 
-
-
-
-! initialize first guess to zero
-a      = 0.0
-res    = rglob - matmul(kglob, a)
+! conjugate gradient solver for solving kglob * a = rglob
+aprev  = 0.0
+print *, 'first guess: ', aprev(:)
+res    = rglob - matmul(kglob, aprev)
+print *, 'matrix-vector product: ', matmul(kglob, aprev)
 zprev  = res
-lambda = dot_product(zprev, res) / dot_product(zprev, matmul(kglob, zprev))
-a      = a + lambda * zprev
 
-convergence = 2.0 ! dummy initial value
+! if we hit it on the head, then don't do any more iterations
+! check to make sure the residual is not already zero
+
+
+
+lambda = dot_product(zprev, res) / dot_product(zprev, matmul(kglob, zprev))
+a      = aprev + lambda * zprev
+print *, 'first residual: ', res, '\n'
+print *, 'lambda: ', lambda
+print *, 'a: ', a
+
+convergence = 0.0
+do i = 1, n_nodes
+  convergence = convergence + abs(a(i) - aprev(i))
+end do
+
 do while (convergence > tol)
   aprev  = a
   res    = rglob - matmul(kglob, a)
@@ -127,6 +147,12 @@ do while (convergence > tol)
   a      = a + lambda * z
   zprev  = z
   
+  print *, 'residual: ', res(:)
+  !print *, 'theta: ', theta
+  !print *, 'z: ', z(:)
+  !print *, 'lambda: ', lambda
+  !print *, 'a: ', a
+
   convergence = 0.0
   do i = 1, n_nodes
     convergence = convergence + abs(a(i) - aprev(i))
@@ -144,28 +170,18 @@ write(1, *) a(:)
 
 
 ! write program variables to user
-print *, 'Beginning FEM solve of the heat equation with:'
-print *, 'length: ', length
-print *, 'number of elements: ', n_el
-print *, 'polynomial order: ', order
-print *, 'Total nodes: ', n_nodes
-print *, 'Number of nodes per element: ', n_en
-!print *, 'Domain node locations: ', x
-print *, 'Quadrature points:'
-print *, qp
-print *, 'Phi values:', phi(:, :)
-print *, 'Derivative values:', dphi(:, :)
-print *, 'Elemental stiffness matrix:', kel(:, :)
-print *, 'Elemental load vector:', rel(:)
-print *, 'Location matrix:'
-print *, LM(1, :)
-print *, LM(2, :)
-print *, 'Global matrix:'
-print *, kglob(:, 1)
-print *, kglob(:, 2)
-print *, kglob(:, 3)
-print *, 'lambda: ', lambda
+!print *, 'Quadrature points:'
+!print *, qp
+!print *, 'Phi values:', phi(:, :)
+!print *, 'Derivative values:', dphi(:, :)
+!print *, 'Elemental stiffness matrix:', kel(:, :)
+!print *, 'Elemental load vector:', rel(:)
+!print *, 'Global vector: ', rglob(:) 
 
+!print *, 'Global matrix:', kglob(:, :)
+!do i = 1, n_nodes
+!  print *, kglob(:, i)
+!end do
 
 ! deallocate memory 
 deallocate(qp, x, kel, rel, phi, dphi, kglob, rglob, a, aprev, z, zprev, res)
@@ -175,6 +191,7 @@ deallocate(qp, x, kel, rel, phi, dphi, kglob, rglob, a, aprev, z, zprev, res)
 CONTAINS
 
 subroutine locationmatrix(LM, n_el, n_en)
+  implicit none
   integer, dimension(:, :), allocatable, intent(out) :: LM
   integer, intent(in) :: n_el
   integer, intent(in) :: n_en
@@ -191,6 +208,7 @@ LM(i, j) = 1 + (i - 1) * (n_en - 1) + (j - 1)
 end subroutine locationmatrix
 
 subroutine phi_val(order, qp, phi, dphi)
+  implicit none
   integer, intent(in)  :: order
   real(rk), dimension(:, :), intent(in)  :: qp
   real(rk), dimension(:, :), allocatable, intent(inout) :: phi
