@@ -132,12 +132,6 @@ res    = rglob - matmul(kglob, aprev)
 zprev  = res
 print *, 'first residual: ', res, '\n'
 
-! if we hit it on the head, then don't do any more iterations
-! check to make sure the residual is not already zero
-if (dot_product(res, res) <= tol) then
-  print *, 'residual is essentially zero.'
-end if
-
 lambda = dot_product(zprev, res) / dot_product(zprev, matmul(kglob, zprev))
 a      = aprev + lambda * zprev
 !print *, 'lambda: ', lambda
@@ -149,8 +143,8 @@ do i = 1, n_nodes
 end do
 
 j = 1
-do while (convergence > tol)
-!do while (j < 10)
+!do while (convergence > tol)
+do while (j < 2*n_nodes)
   aprev  = a
   res    = rglob - matmul(kglob, aprev)
   print *, 'next residual: ', res
@@ -158,7 +152,7 @@ do while (convergence > tol)
   theta  = - dot_product(res, matmul(kglob, zprev)) / dot_product(zprev, matmul(kglob, zprev))
   z      = res + theta * zprev
   lambda = dot_product(z, res) / dot_product(z, matmul(kglob, z))
-  a      = a + lambda * z
+  a      = aprev + lambda * z
   zprev  = z
   
   !print *, 'residual: ', res(:)
@@ -222,6 +216,7 @@ subroutine locationmatrix(LM, n_el, n_en)
   end do
 end subroutine locationmatrix
 
+
 subroutine phi_val(order, qp, phi, dphi)
   implicit none
   integer, intent(in)  :: order
@@ -248,7 +243,7 @@ subroutine phi_val(order, qp, phi, dphi)
     case(2)
       phi(1, :)  = qp(:) * (qp(:) - 1.0) / 2.0
       phi(2, :)  = (1.0 - qp(:)) * (1.0 + qp(:))
-      phi(3, :)  = qp(1) * (qp(:) + 1.0) / 2.0
+      phi(3, :)  = qp(:) * (qp(:) + 1.0) / 2.0
       dphi(1, :) = (2.0 * qp(:) - 1.0) / 2.0
       dphi(2, :) = 1.0 - qp(:) * qp(:)
       dphi(3, :) = (2.0 * qp(:) + 1.0) / 2.0
