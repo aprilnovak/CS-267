@@ -1,13 +1,5 @@
 ! program to solve the heat equation (Dirichlet boundary conditions only)
 
-! fortran arrays are read and written in column order
-! fortran arrays are only stored this way - the first index stil refers to the row 
-! and the second to the column?
-
-! however, you still use the same indices to refer to the elements of a matrix
-
-! first row: kel(1, :)
-
 PROGRAM main
 
 implicit none
@@ -76,9 +68,6 @@ do q = 1, n_qp
   end do
 end do
 
-print *, 'elementary stiffness matrix: ', kel
-print *, 'elementary load vector: ', rel
-
 ! form the location matrix
 call locationmatrix(LM, n_el, n_en)
 
@@ -119,55 +108,34 @@ rglob(1) = 2.0                   ! left BC value
 rglob(n_nodes) = 1.0             ! right BC value     
 
 
-print *, 'solving matrix system: kglob: '
-print *, kglob(1, :)
-print *, kglob(2, :)
-print *, kglob(3, :)
-print *, kglob(4, :)
-!print *, 'with load vector: ', rglob(:)
-
 ! conjugate gradient solver for solving kglob * a = rglob
 aprev  = 1.0
 res    = rglob - matmul(kglob, aprev)
 zprev  = res
-print *, 'first residual: ', res, '\n'
 
 lambda = dot_product(zprev, res) / dot_product(zprev, matmul(kglob, zprev))
 a      = aprev + lambda * zprev
-!print *, 'lambda: ', lambda
-print *, 'first update: ', a
 
 convergence = 0.0
 do i = 1, n_nodes
   convergence = convergence + abs(a(i) - aprev(i))
 end do
 
-j = 1
-!do while (convergence > tol)
-do while (j < 2*n_nodes)
+do while (convergence > tol)
   aprev  = a
   res    = rglob - matmul(kglob, aprev)
-  print *, 'next residual: ', res
 
   theta  = - dot_product(res, matmul(kglob, zprev)) / dot_product(zprev, matmul(kglob, zprev))
   z      = res + theta * zprev
   lambda = dot_product(z, res) / dot_product(z, matmul(kglob, z))
   a      = aprev + lambda * z
   zprev  = z
-  
-  !print *, 'residual: ', res(:)
-  !print *, 'theta: ', theta
-  !print *, 'z: ', z(:)
-  !print *, 'lambda: ', lambda
-  !print *, 'a: ', a
 
   convergence = 0.0
   do i = 1, n_nodes
     convergence = convergence + abs(a(i) - aprev(i))
   end do
   
-  print *, 'error: ', convergence
-  j = j + 1
 end do
 
 ! write to an output file for plotting. If this file exists, it will be re-written.
@@ -175,23 +143,6 @@ open(1, file='output.txt', iostat=AllocateStatus, status="replace")
 if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 
 write(1, *) a(:)
-
-
-
-! write program variables to user
-!print *, 'Quadrature points:'
-!print *, qp
-!print *, 'Phi values:', phi(:, :)
-!print *, 'Derivative values:', dphi(:, :)
-!print *, 'Elemental stiffness matrix:', kel(:, :)
-!print *, 'Elemental load vector:', rel(:)
-!print *, 'Global vector: ', rglob(:) 
-
-!print *, 'Global matrix:', kglob(:, :)
-!do i = 1, n_nodes
-!  print *, kglob(:, i)
-!end do
-
 ! deallocate memory 
 deallocate(qp, wt, x, kel, rel, phi, dphi, kglob, rglob, a, aprev, z, zprev, res)
 
