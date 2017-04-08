@@ -35,47 +35,17 @@ real(rk), dimension(:, :), allocatable :: kel    ! elemental stiffness matrix
 real(rk), dimension(:),    allocatable :: rel    ! elemental load vector
 real(rk), dimension(:, :), allocatable :: phi    ! shape functions
 real(rk), dimension(:, :), allocatable :: dphi   ! shape function derivatives
-real(rk), dimension(:, :), allocatable :: kglob  ! global stiffness matrix
 real(rk), dimension(:),    allocatable :: rglob  ! global load vector
 real(rk), dimension(:),    allocatable :: a      ! conjugate gradient solution iterates
 real(rk), dimension(:),    allocatable :: aprev  ! conjugate gradient solution iterates
 real(rk), dimension(:),    allocatable :: z      ! conjugate gradient update iterates
 real(rk), dimension(:),    allocatable :: zprev  ! conjugate gradient update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
-real(rk) :: val
-!integer, dimension(:), allocatable :: LMcount ! number of times each node number appears
-!integer, dimension(:), allocatable  :: sparse_mult_result
-integer, dimension(5) :: p
-integer, dimension(5, 5) :: mat
+
 ! initialize the thermal conductivity and heat source
 k = 1.0
 source = 1.0
 tol = 0.001
-
-! test out array modifications manually
-
-p = 0.0
-mat(1, :) = (/ 1, 2, 3, 4, 5/)
-mat(2, :) = (/6, 7, 8, 9, 1/)
-mat(3, :) = (/2, 3, 4, 5, 6/)
-mat(4, :) = (/ 7, 8, 9, 1, 2/)
-mat(5, :) = (/3, 4, 5, 6, 7/)
-
-do i = 1, 5 ! why won't this add the value of the matrix to the vector?
-  p(i) = p(i) + mat(2, i)
-  print *, 'p: ', p
-end do
-
-print *, 'final p: ', p
-
-
-
-
-
-
-
-
-
 
 call commandline(length, n_el, order, leftBC, rightBC) ! parse command line arguments
 call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem variables
@@ -91,10 +61,6 @@ if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
 allocate(dphi(order + 1, n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of dphi array failed."
 
-
-
-
-
 call phi_val(order, qp)                     ! initialize shape functions
 
 ! form the elemental stiffness matrix and load vector
@@ -102,8 +68,6 @@ allocate(kel(n_en, n_en), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of kel array failed."
 allocate(rel(n_en), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rel array failed."
-!allocate(sparse_mult_result(n_nodes), stat = AllocateStatus)
-!if (AllocateStatus /= 0) STOP "Allocation of sparse_mult_result array failed."
 
 kel = 0.0
 rel = 0.0
@@ -119,67 +83,20 @@ end do
 ! form the location matrix
 allocate(LM(n_en, n_el), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
-!allocate(LMcount(n_nodes), stat = AllocateStatus)
-!if (AllocateStatus /= 0) STOP "Allocation of LMcount array failed."
 call locationmatrix()
 
-! form the global stiffness matrix and global load vector
-allocate(kglob(n_nodes, n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of kglob array failed."
+! form the global load vector
 allocate(rglob(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
 
-
 ! populate global matrices element by element so that
 ! elements in LM are accessed by column (fastest)
-kglob = 0.0
 rglob = 0.0
 do q = 1, n_el
   do i = 1, n_en
     rglob(LM(i, q)) = rglob(LM(i, q)) + rel(i)
-    do j = 1, n_en
-      kglob(LM(i, q), LM(j, q)) = kglob(LM(i, q), LM(j, q)) + kel(i, j)
-    end do
   end do
 end do
-
-
-do i = 1, n_nodes
-  print *, kglob(i,:)
-end do
-
-! for now, this only works for 1-D FEM problems where we know the 
-! global array structure
-
-! loop over the LM columns and count number of times each node appears
-! (for each element)
-!LMcount = 0
-!do i = 1, n_en
-!  do j = 1, n_el
-!    LMcount(LM(i, j)) = LMcount(LM(i, j)) + 1
-!  end do
-!end do
-
-!j = 1
-!do i = 1, n_nodes + 1
-!  pt(i) = j
-!  j = j + n_en + LMcount(i) - 1
-!end do
-
-!print *, 'starting numbers of each row: ', pt
-
-
-! compute by looping over the elements
-!re = 0.0
-
-do q = 1, n_el ! loop over the elements
-  do i = 1, n_en ! loop over all entries in kel
-    do j = 1, n_en
-      !re(LM(i, q)) = re(LM(i, q)) + kel(i, j) * D(LM(j, q))
-    end do
-  end do
-end do
-
 
 allocate(a(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of a array failed."
@@ -193,29 +110,14 @@ allocate(res(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of res array failed."
 
 ! apply boundary conditions
-kglob(1, :) = 0.0
-kglob(n_nodes, :) = 0.0
-kglob(1, 1) = 1.0                ! set up left BC              
-kglob(n_nodes, n_nodes) = 1.0    ! set up right BC
 rglob(1) = leftBC                ! left BC value
 rglob(n_nodes) = rightBC         ! right BC value     
 
-
-
-
 ! conjugate gradient solver for solving kglob * a = rglob
 aprev       = 1.0
-
-
-
-
-print *, 'using Fortran intrinsic: ', matmul(kglob, aprev)
-print *, 'my function: ', sparse_mult(kel, LM, aprev)
-
-
-res         = rglob - matmul(kglob, aprev)
+res         = rglob - sparse_mult(kel, LM, aprev)
 zprev       = res
-lambda      = dot_product(zprev, res) / dot_product(zprev, matmul(kglob, zprev))
+lambda      = dot_product(zprev, res) / dot_product(zprev, sparse_mult(kel, LM, zprev))
 a           = aprev + lambda * zprev
 convergence = 0.0
 
@@ -225,10 +127,10 @@ end do
 
 do while (convergence > tol)
   aprev  = a
-  res    = rglob - matmul(kglob, aprev)
-  theta  = - dot_product(res, matmul(kglob, zprev)) / dot_product(zprev, matmul(kglob, zprev))
+  res    = rglob - sparse_mult(kel, LM, aprev)
+  theta  = - dot_product(res, sparse_mult(kel, LM, zprev)) / dot_product(zprev, sparse_mult(kel, LM, zprev))
   z      = res + theta * zprev
-  lambda = dot_product(z, res) / dot_product(z, matmul(kglob, z))
+  lambda = dot_product(z, res) / dot_product(z, sparse_mult(kel, LM, z))
   a      = aprev + lambda * z
   zprev  = z
 
@@ -244,7 +146,7 @@ if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 
 write(1, *) a(:)
 ! deallocate memory 
-deallocate(qp, wt, x, kel, rel, phi, dphi, kglob, rglob, a, aprev, z, zprev, res, LM)
+deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, aprev, z, zprev, res, LM)
 
 
 
