@@ -44,14 +44,38 @@ real(rk), dimension(:),    allocatable :: zprev  ! conjugate gradient update ite
 real(rk), dimension(:),    allocatable :: res    ! solution residual
 real(rk) :: val
 !integer, dimension(:), allocatable :: LMcount ! number of times each node number appears
-integer, dimension(:), allocatable  :: sparse_mult_result
+!integer, dimension(:), allocatable  :: sparse_mult_result
 integer, dimension(5) :: p
+integer, dimension(5, 5) :: mat
 ! initialize the thermal conductivity and heat source
 k = 1.0
 source = 1.0
 tol = 0.001
 
 ! test out array modifications manually
+
+p = 0.0
+mat(1, :) = (/ 1, 2, 3, 4, 5/)
+mat(2, :) = (/6, 7, 8, 9, 1/)
+mat(3, :) = (/2, 3, 4, 5, 6/)
+mat(4, :) = (/ 7, 8, 9, 1, 2/)
+mat(5, :) = (/3, 4, 5, 6, 7/)
+
+do i = 1, 5 ! why won't this add the value of the matrix to the vector?
+  p(i) = p(i) + mat(2, i)
+  print *, 'p: ', p
+end do
+
+print *, 'final p: ', p
+
+
+
+
+
+
+
+
+
 
 call commandline(length, n_el, order, leftBC, rightBC) ! parse command line arguments
 call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem variables
@@ -78,8 +102,8 @@ allocate(kel(n_en, n_en), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of kel array failed."
 allocate(rel(n_en), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rel array failed."
-allocate(sparse_mult_result(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of sparse_mult_result array failed."
+!allocate(sparse_mult_result(n_nodes), stat = AllocateStatus)
+!if (AllocateStatus /= 0) STOP "Allocation of sparse_mult_result array failed."
 
 kel = 0.0
 rel = 0.0
@@ -119,12 +143,10 @@ do q = 1, n_el
   end do
 end do
 
-!print *, 'kglob times D: ', matmul(kglob, D)
-!print *, 'kglob: '
 
-!do i = 1, n_nodes
-!  print *, kglob(i,:)
-!end do
+do i = 1, n_nodes
+  print *, kglob(i,:)
+end do
 
 ! for now, this only works for 1-D FEM problems where we know the 
 ! global array structure
@@ -185,23 +207,10 @@ rglob(n_nodes) = rightBC         ! right BC value
 aprev       = 1.0
 
 
-! test out my sparse_mult function manually
-sparse_mult_result = 0.0
-
-do q = 1, n_el ! loop over the elements
-  do i = 1, n_en ! loop over all entries in kel
-    do j = 1, n_en
-      sparse_mult_result(LM(i, q)) = sparse_mult_result(LM(i, q)) + kel(i, j) * aprev(LM(j, q))
-      print *, 'latest update: ', sparse_mult_result
-    end do
-  print *, '-----------------------------------------------'
-  print *, 'outer update: ', sparse_mult_result
-  end do
-end do
 
 
 print *, 'using Fortran intrinsic: ', matmul(kglob, aprev)
-print *, 'my function: ', sparse_mult_result
+print *, 'my function: ', sparse_mult(kel, LM, aprev)
 
 
 res         = rglob - matmul(kglob, aprev)
@@ -253,18 +262,18 @@ function sparse_mult(matrix, LM, vector)
  
  integer :: i, j, q ! looping variables
  sparse_mult = 0.0
- !n_el = 4
- !n_en = 2
-! print *, 'function looping extents:', n_el, n_en
- 
- do q = 1, n_el ! loop over the elements
-   do i = 1, n_en ! loop over all entries in kel
-     do j = 1, n_en
-!      print *, 'computing a multiplication' 
-      sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + matrix(i, j) * vector(LM(j, q))
-     end do
-   end do
- end do
+  
+  do q = 1, n_el ! loop over the elements
+    do i = 1, n_en ! loop over all entries in kel
+      do j = 1, n_en
+        if ((LM(i, q) == 1) .and. (LM(j, q) /= 1)) then ! left boundary condition
+        else if ((LM(i, q) == n_nodes) .and. (LM(j, q) /= n_nodes)) then ! right boundary condition
+        else
+          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + matrix(i, j) * vector(LM(j, q))
+        end if
+      end do
+    end do
+  end do
 end function sparse_mult
 
 
