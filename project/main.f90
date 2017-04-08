@@ -42,34 +42,16 @@ real(rk), dimension(:),    allocatable :: aprev  ! conjugate gradient solution i
 real(rk), dimension(:),    allocatable :: z      ! conjugate gradient update iterates
 real(rk), dimension(:),    allocatable :: zprev  ! conjugate gradient update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
-
-integer, dimension(:), allocatable :: LMcount ! number of times each node number appears
-integer, dimension(5, 5) :: B   
-integer, dimension(5)    :: D   
-integer, dimension(5)    :: re
-integer, dimension(13)    :: val
-integer, dimension(13)    :: ind
-integer, dimension(6)     :: pt
-integer :: pt1, pt2
+real(rk) :: val
+!integer, dimension(:), allocatable :: LMcount ! number of times each node number appears
+integer, dimension(:), allocatable  :: sparse_mult_result
+integer, dimension(5) :: p
 ! initialize the thermal conductivity and heat source
 k = 1.0
 source = 1.0
 tol = 0.001
 
-
-! experiment with sparse matrix - dense vector multiplication
-B(1, :) = (/1, 2, 3, 0, 0 /)
-B(2, :) = (/0, 4, 5, 6, 0 /)
-B(3, :) = (/0, 0, 7, 8, 9 /)
-B(4, :) = (/0, 10, 0, 11, 0 /)
-B(5, :) = (/12, 13, 0, 0, 0 /)
-
-D = (/1, 2, 3, 4, 5/)
-print *, matmul(B, D)
-
-!val = (/ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 /)
-ind = (/ 1, 2, 3, 2, 3, 4, 3, 4, 5, 2, 4, 1, 2 /)
-pt  = (/ 1, 4, 7, 10, 12, size(val) + 1 /)
+! test out array modifications manually
 
 call commandline(length, n_el, order, leftBC, rightBC) ! parse command line arguments
 call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem variables
@@ -96,6 +78,8 @@ allocate(kel(n_en, n_en), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of kel array failed."
 allocate(rel(n_en), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rel array failed."
+allocate(sparse_mult_result(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of sparse_mult_result array failed."
 
 kel = 0.0
 rel = 0.0
@@ -111,8 +95,8 @@ end do
 ! form the location matrix
 allocate(LM(n_en, n_el), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
-allocate(LMcount(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of LMcount array failed."
+!allocate(LMcount(n_nodes), stat = AllocateStatus)
+!if (AllocateStatus /= 0) STOP "Allocation of LMcount array failed."
 call locationmatrix()
 
 ! form the global stiffness matrix and global load vector
@@ -135,45 +119,44 @@ do q = 1, n_el
   end do
 end do
 
-print *, 'kglob times D: ', matmul(kglob, D)
-print *, 'kglob: '
+!print *, 'kglob times D: ', matmul(kglob, D)
+!print *, 'kglob: '
 
-do i = 1, n_nodes
-  print *, kglob(i,:)
-end do
+!do i = 1, n_nodes
+!  print *, kglob(i,:)
+!end do
 
 ! for now, this only works for 1-D FEM problems where we know the 
 ! global array structure
 
 ! loop over the LM columns and count number of times each node appears
 ! (for each element)
-LMcount = 0
-do i = 1, n_en
-  do j = 1, n_el
-    LMcount(LM(i, j)) = LMcount(LM(i, j)) + 1
+!LMcount = 0
+!do i = 1, n_en
+!  do j = 1, n_el
+!    LMcount(LM(i, j)) = LMcount(LM(i, j)) + 1
+!  end do
+!end do
+
+!j = 1
+!do i = 1, n_nodes + 1
+!  pt(i) = j
+!  j = j + n_en + LMcount(i) - 1
+!end do
+
+!print *, 'starting numbers of each row: ', pt
+
+
+! compute by looping over the elements
+!re = 0.0
+
+do q = 1, n_el ! loop over the elements
+  do i = 1, n_en ! loop over all entries in kel
+    do j = 1, n_en
+      !re(LM(i, q)) = re(LM(i, q)) + kel(i, j) * D(LM(j, q))
+    end do
   end do
 end do
-
-print *, 'number of elements that share the nodes: ', LMcount
-
-j = 1
-do i = 1, n_nodes + 1
-  pt(i) = j
-  j = j + n_en + LMcount(i) - 1
-end do
-
-print *, 'starting numbers of each row: ', pt
-
-
-
-! perform multiplication
-do i = 1, 5 ! for each row of the sparse matrix
-  pt1 = pt(i)
-  pt2 = pt(i + 1) - 1
-  re(i) = dot_product(val(pt1:pt2), D(ind(pt1:pt2)))
-end do
-
-print *, 'sparse multiplication result: ', re(:)
 
 
 allocate(a(n_nodes), stat = AllocateStatus)
@@ -196,8 +179,31 @@ rglob(1) = leftBC                ! left BC value
 rglob(n_nodes) = rightBC         ! right BC value     
 
 
+
+
 ! conjugate gradient solver for solving kglob * a = rglob
 aprev       = 1.0
+
+
+! test out my sparse_mult function manually
+sparse_mult_result = 0.0
+
+do q = 1, n_el ! loop over the elements
+  do i = 1, n_en ! loop over all entries in kel
+    do j = 1, n_en
+      sparse_mult_result(LM(i, q)) = sparse_mult_result(LM(i, q)) + kel(i, j) * aprev(LM(j, q))
+      print *, 'latest update: ', sparse_mult_result
+    end do
+  print *, '-----------------------------------------------'
+  print *, 'outer update: ', sparse_mult_result
+  end do
+end do
+
+
+print *, 'using Fortran intrinsic: ', matmul(kglob, aprev)
+print *, 'my function: ', sparse_mult_result
+
+
 res         = rglob - matmul(kglob, aprev)
 zprev       = res
 lambda      = dot_product(zprev, res) / dot_product(zprev, matmul(kglob, zprev))
@@ -229,11 +235,38 @@ if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 
 write(1, *) a(:)
 ! deallocate memory 
-deallocate(qp, wt, x, kel, rel, phi, dphi, kglob, rglob, a, aprev, z, zprev, res)
+deallocate(qp, wt, x, kel, rel, phi, dphi, kglob, rglob, a, aprev, z, zprev, res, LM)
 
 
 
 CONTAINS ! define all internal procedures
+
+function sparse_mult(matrix, LM, vector)
+ ! pass in an elementary matrix and the full vector
+ real(rk) :: matrix(:, :) ! define the function parameters as assumed-shape arrays  
+ real(rk) :: vector(:)
+ integer  :: LM(:, :)
+ !integer  :: n_el, n_en
+
+ ! return value of function, as an automatic array
+ real(rk) :: sparse_mult(size(vector))
+ 
+ integer :: i, j, q ! looping variables
+ sparse_mult = 0.0
+ !n_el = 4
+ !n_en = 2
+! print *, 'function looping extents:', n_el, n_en
+ 
+ do q = 1, n_el ! loop over the elements
+   do i = 1, n_en ! loop over all entries in kel
+     do j = 1, n_en
+!      print *, 'computing a multiplication' 
+      sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + matrix(i, j) * vector(LM(j, q))
+     end do
+   end do
+ end do
+end function sparse_mult
+
 
 subroutine locationmatrix()
   ! forms the location matrix, which is global in the calling program
