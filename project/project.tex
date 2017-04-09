@@ -1,0 +1,103 @@
+\documentclass[10pt]{article}
+\usepackage[letterpaper]{geometry}
+\geometry{verbose,tmargin=1in,bmargin=1in,lmargin=1in,rmargin=1in}
+\usepackage{setspace}
+\usepackage{ragged2e}
+\usepackage{color}
+\usepackage{titlesec}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{mathtools}
+\usepackage{amsmath}
+\usepackage[font=small,labelfont=bf,labelsep=period]{caption}
+\usepackage[english]{babel}
+\usepackage{indentfirst}
+\usepackage{array}
+\usepackage{makecell}
+\usepackage[usenames,dvipsnames]{xcolor}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage{arydshln}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{xfrac}
+\usepackage{etoolbox}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{dcolumn}
+\usepackage{hyperref}
+\usepackage{courier}
+\usepackage{url}
+\usepackage{esvect}
+\usepackage{commath}
+\usepackage{verbatim} % for block comments
+\usepackage{enumitem}
+\usepackage{hyperref} % for clickable table of contents
+\usepackage{braket}
+\usepackage{titlesec}
+\usepackage{booktabs}
+\usepackage{gensymb}
+\usepackage{longtable}
+\usepackage{listings}
+\usepackage{cancel}
+\usepackage{tcolorbox}
+\usepackage[mathscr]{euscript}
+\lstset{
+	basicstyle=\ttfamily\small,
+    frame=single,
+    language=fortran,
+    breaklines=true,
+    postbreak=\raisebox{0ex}[0ex][0ex]{\ensuremath{\color{red}\hookrightarrow\space}}
+}
+
+% for circled numbers
+\usepackage{tikz}
+\newcommand*\circled[1]{\tikz[baseline=(char.base)]{
+            \node[shape=circle,draw,inner sep=2pt] (char) {#1};}}
+
+
+\titleclass{\subsubsubsection}{straight}[\subsection]
+
+% define new command for triple sub sections
+\newcounter{subsubsubsection}[subsubsection]
+\renewcommand\thesubsubsubsection{\thesubsubsection.\arabic{subsubsubsection}}
+\renewcommand\theparagraph{\thesubsubsubsection.\arabic{paragraph}} % optional; useful if paragraphs are to be numbered
+
+\titleformat{\subsubsubsection}
+  {\normalfont\normalsize\bfseries}{\thesubsubsubsection}{1em}{}
+\titlespacing*{\subsubsubsection}
+{0pt}{3.25ex plus 1ex minus .2ex}{1.5ex plus .2ex}
+
+\makeatletter
+\renewcommand\paragraph{\@startsection{paragraph}{5}{\z@}%
+  {3.25ex \@plus1ex \@minus.2ex}%
+  {-1em}%
+  {\normalfont\normalsize\bfseries}}
+\renewcommand\subparagraph{\@startsection{subparagraph}{6}{\parindent}%
+  {3.25ex \@plus1ex \@minus .2ex}%
+  {-1em}%
+  {\normalfont\normalsize\bfseries}}
+\def\toclevel@subsubsubsection{4}
+\def\toclevel@paragraph{5}
+\def\toclevel@paragraph{6}
+\def\l@subsubsubsection{\@dottedtocline{4}{7em}{4em}}
+\def\l@paragraph{\@dottedtocline{5}{10em}{5em}}
+\def\l@subparagraph{\@dottedtocline{6}{14em}{6em}}
+\makeatother
+
+\newcommand{\volume}{\mathop{\ooalign{\hfil$V$\hfil\cr\kern0.08em--\hfil\cr}}\nolimits}
+
+\setcounter{secnumdepth}{4}
+\setcounter{tocdepth}{4}
+
+\title{MPI Parallelization of a Finite Element Application}
+\author{April Novak}
+
+
+\begin{document}
+
+\maketitle
+
+
+
+\end{document}
