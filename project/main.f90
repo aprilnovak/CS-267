@@ -117,7 +117,7 @@ rglob(n_nodes) = rightBC         ! right BC value
 aprev       = 1.0
 res         = rglob - sparse_mult(kel, LM, aprev)
 zprev       = res
-lambda      = dot_product(zprev, res) / dot_product(zprev, sparse_mult(kel, LM, zprev))
+lambda      = dotprod(zprev, res) / dotprod(zprev, sparse_mult(kel, LM, zprev))
 a           = aprev + lambda * zprev
 convergence = 0.0
 
@@ -128,9 +128,9 @@ end do
 do while (convergence > tol)
   aprev  = a
   res    = rglob - sparse_mult(kel, LM, aprev)
-  theta  = - dot_product(res, sparse_mult(kel, LM, zprev)) / dot_product(zprev, sparse_mult(kel, LM, zprev))
+  theta  = - dotprod(res, sparse_mult(kel, LM, zprev)) / dotprod(zprev, sparse_mult(kel, LM, zprev))
   z      = res + theta * zprev
-  lambda = dot_product(z, res) / dot_product(z, sparse_mult(kel, LM, z))
+  lambda = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
   a      = aprev + lambda * z
   zprev  = z
 
@@ -152,12 +152,24 @@ deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, aprev, z, zprev, res, LM)
 
 CONTAINS ! define all internal procedures
 
+real function dotprod(vec1, vec2)
+  real(rk) :: vec1(:)
+  real(rk) :: vec2(:)
+
+  integer  :: i ! looping variable
+
+  dotprod = 0.0  
+  do i = 1, size(vec1)
+    dotprod = dotprod + vec1(i) * vec2(i)
+  end do
+end function dotprod
+
+
+
 function sparse_mult(matrix, LM, vector)
- ! pass in an elementary matrix and the full vector
- real(rk) :: matrix(:, :) ! define the function parameters as assumed-shape arrays  
- real(rk) :: vector(:)
- integer  :: LM(:, :)
- !integer  :: n_el, n_en
+ real(rk) :: matrix(:, :) ! elementary matrix (assumed-shape array)
+ real(rk) :: vector(:)    ! full vector (assumed-shape array)
+ integer  :: LM(:, :)     ! location matrix
 
  ! return value of function, as an automatic array
  real(rk) :: sparse_mult(size(vector))
