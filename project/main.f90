@@ -1,21 +1,24 @@
 ! program to solve the heat equation (Dirichlet boundary conditions only)
 
+! the number of CG iterations scales as N (but is about 4*N)
+
 PROGRAM main
 
 implicit none
 
 ! define double precision with 15 digits of accuracy
 ! and an exponent range of +- 307
-integer, parameter :: rk = selected_real_kind(15, 307)
+integer, parameter :: rk = selected_real_kind(8, 30)
 
-integer  :: AllocateStatus ! variable to hold memory allocation success
-integer  :: i, j, q        ! loop iteration variables
+integer  :: AllocateStatus     ! variable to hold memory allocation success
+integer  :: i, j, q            ! loop iteration variables
 
 integer  :: n_el               ! number of elements
 integer  :: n_en               ! number of nodes per element
 integer  :: n_nodes            ! total number of nodes
 integer  :: order              ! polynomial order
 integer  :: n_qp               ! number of quadrature points
+integer  :: cnt                ! number of CG iterations
 real(rk) :: length             ! length of the domain (1-D)
 real(rk) :: h                  ! length of one element
 real(rk) :: k                  ! thermal conductivity
@@ -26,6 +29,8 @@ real(rk) :: theta              ! conjugate gradient coefficient
 real(rk) :: lambda             ! conjugate gradient coefficient
 real(rk) :: convergence        ! difference between successive iterations
 real(rk) :: tol                ! conjugate gradient convergence tolerance
+real(rk) :: start              ! holds run times
+real(rk) :: finish             ! holds run times
 
 integer,  dimension(:, :), allocatable :: LM     ! location matrix
 real(rk), dimension(:),    allocatable :: qp     ! quadrature points
@@ -46,6 +51,8 @@ real(rk), dimension(:),    allocatable :: res    ! solution residual
 k = 1.0
 source = 1.0
 tol = 0.001
+
+call cpu_time(start)
 
 call commandline(length, n_el, order, leftBC, rightBC) ! parse command line arguments
 call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem variables
@@ -125,6 +132,7 @@ do i = 1, n_nodes
   convergence = convergence + abs(a(i) - aprev(i))
 end do
 
+cnt = 0
 do while (convergence > tol)
   aprev  = a
   res    = rglob - sparse_mult(kel, LM, aprev)
@@ -138,7 +146,10 @@ do while (convergence > tol)
   do i = 1, n_nodes
     convergence = convergence + abs(a(i) - aprev(i))
   end do
+  cnt = cnt + 1
 end do
+
+print *, 'CG iterations: ', cnt
 
 ! write to an output file for plotting. If this file exists, it will be re-written.
 open(1, file='output.txt', iostat=AllocateStatus, status="replace")
@@ -148,11 +159,13 @@ write(1, *) a(:)
 ! deallocate memory 
 deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, aprev, z, zprev, res, LM)
 
-
+call cpu_time(finish)
+print *, 'runtime: ', finish - start
 
 CONTAINS ! define all internal procedures
 
 real function dotprod(vec1, vec2)
+  implicit none
   real(rk) :: vec1(:)
   real(rk) :: vec2(:)
 
@@ -165,18 +178,18 @@ real function dotprod(vec1, vec2)
 end function dotprod
 
 
-
 function sparse_mult(matrix, LM, vector)
- real(rk) :: matrix(:, :) ! elementary matrix (assumed-shape array)
- real(rk) :: vector(:)    ! full vector (assumed-shape array)
- integer  :: LM(:, :)     ! location matrix
-
- ! return value of function, as an automatic array
- real(rk) :: sparse_mult(size(vector))
+  implicit none
+  real(rk) :: matrix(:, :) ! elementary matrix (assumed-shape array)
+  real(rk) :: vector(:)    ! full vector (assumed-shape array)
+  integer  :: LM(:, :)     ! location matrix
  
- integer :: i, j, q ! looping variables
- sparse_mult = 0.0
+  ! return value of function, as an automatic array
+  real(rk) :: sparse_mult(size(vector))
   
+  integer :: i, j, q ! looping variables
+  sparse_mult = 0.0
+   
   do q = 1, n_el ! loop over the elements
     do i = 1, n_en ! loop over all entries in kel
       do j = 1, n_en
@@ -270,7 +283,6 @@ subroutine commandline(length, n_el, order, leftBC, rightBC)
   real(rk), intent(out) :: leftBC
   real(rk), intent(out) :: rightBC
  
-  ! define local variables 
   integer :: nargs            ! number of command line arguments
   integer :: i                ! looping variable
   character(len = 12) :: args ! command line argument
