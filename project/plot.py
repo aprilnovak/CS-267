@@ -1,14 +1,36 @@
+import sys # For: command line arguments
+import matplotlib # For: plotting
 from matplotlib import pyplot as plt
-import numpy as np
 
-raw = []
-with open('output.txt', 'r') as f:
-	for line in f:
-		raw = line.split(' ')
+# get the filenames and descriptions for comparison
+num_files = (len(sys.argv) - 1)/2
 
-data = [raw[i] for i in range(0, len(raw) - 1) if raw[i] != '']
-data = [float(data[i]) for i in range(0, len(data))]
+filenames = []
+descriptions = []
+for i in range(0, num_files + 1, 2):
+	filenames.append(sys.argv[i + 1])
+	descriptions.append(sys.argv[i + 2])
 
-x = np.linspace(0.0, 1.0, len(data))
-plt.plot(x, data, '*-')
-plt.show()
+my_dict = dict()
+for index, filename in enumerate(filenames):
+	with open(filename, 'r') as f:
+		size = []
+		CG = []
+		total = []
+		description = descriptions[index]
+		my_dict[description] = {}
+		for line in f:
+			data = line.split(' ')
+			print(data)
+			size.append(float(data[6]))
+			CG.append(float(data[10]))
+			total.append(float(data[14].strip('\n')))
+		my_dict[description] = {'size':size, 'CG':CG, 'total':total}
+
+for description in descriptions:
+    plt.plot(my_dict[description]['size'], my_dict[description]['total'], label='total')
+    plt.plot(my_dict[description]['size'], my_dict[description]['CG'], label='CG solver')
+    plt.ylabel('Runtime (s)')
+    plt.xlabel('Size')
+plt.legend()
+plt.savefig(description + '.png')

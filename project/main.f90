@@ -31,6 +31,15 @@ real(rk) :: convergence        ! difference between successive iterations
 real(rk) :: tol                ! conjugate gradient convergence tolerance
 real(rk) :: start              ! holds run times
 real(rk) :: finish             ! holds run times
+real(rk) :: startCL            ! start, command line parse
+real(rk) :: endCL              ! end, command line parse
+real(rk) :: startInit          ! start, initialization
+real(rk) :: endInit            ! end, initialization
+real(rk) :: startMem           ! start, memory allocation
+real(rk) :: endMem             ! end, memory allocation
+real(rk) :: startCG            ! start, CG
+real(rk) :: endCG              ! end, CG
+
 
 integer,  dimension(:, :), allocatable :: LM     ! location matrix
 integer,  dimension(:),    allocatable :: BCs    ! boundary condition nodes
@@ -55,10 +64,18 @@ tol = 0.001
 
 call cpu_time(start)
 
+call cpu_time(startCL)
 call commandline(length, n_el, order, leftBC, rightBC) ! parse command line args
+call cpu_time(endCL)
+print *, 'command line parse: ', endCL - startCL
+
+call cpu_time(startInit)
 call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem vars
 call quadrature(order, n_qp, qp, wt)                   ! initialize quadrature
+call cpu_time(endInit)
+print *, 'problem initialization: ', endInit - startInit
 
+call cpu_time(startMem)
 allocate(phi(order + 1, n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
 allocate(dphi(order + 1, n_qp), stat = AllocateStatus)
@@ -83,6 +100,9 @@ allocate(zprev(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of zprev array failed."
 allocate(res(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of res array failed."
+call cpu_time(endMem)
+print *, 'memory allocation: ', endMem - startMem
+
 
 call phi_val(order, qp)                     ! initialize shape functions
 
@@ -117,8 +137,11 @@ end do
 rglob(1) = leftBC                ! left BC value
 rglob(n_nodes) = rightBC         ! right BC value     
 
+call cpu_time(startCG)
 call conjugategradient()
-print *, 'CG iterations: ', cnt
+call cpu_time(endCG)
+print *, 'CG iteration time: ', endCG - startCG
+print *, 'CG number: ', cnt
 
 ! write to an output file. If this file exists, it will be re-written.
 open(1, file='output.txt', iostat=AllocateStatus, status="replace")
@@ -130,7 +153,7 @@ print *, 'runtime: ', finish - start
 
 open(2, file='timing.txt', status='old', action='write', &
   form='formatted', position='append')
-write(2, *) 'elements: ', n_el, ', total time: ', finish - start
+write(2, "(I10, F12.6, F12.6)") n_el, finish - start, endCG - startCG
 
 deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, aprev, z, zprev, res, LM)
 
