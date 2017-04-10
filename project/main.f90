@@ -154,15 +154,32 @@ print *, 'CG iterations: ', cnt
 ! write to an output file for plotting. If this file exists, it will be re-written.
 open(1, file='output.txt', iostat=AllocateStatus, status="replace")
 if (AllocateStatus /= 0) STOP "output.txt file opening failed."
-
 write(1, *) a(:)
+
+print *, 'kronecker delta of 0, 1: ', kronecker(0,1)
+print *, 'delta of 1, 1: ', kronecker(1, 1)
+print *, 'delta of 101, 304: ', kronecker(101, 304)
+
+
 ! deallocate memory 
-deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, aprev, z, zprev, res, LM)
+
+
 
 call cpu_time(finish)
 print *, 'runtime: ', finish - start
 
+open(2, file='timing.txt', status='old', action='write', form='formatted', position='append')
+write(2, *) 'elements: ', n_el, ', total time: ', finish - start
+
+deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, aprev, z, zprev, res, LM)
+
 CONTAINS ! define all internal procedures
+
+integer function kronecker(i, j)
+  integer :: i, j
+  kronecker = int((float((i + j) - abs(i - j))) / (float((i + j) + abs(i - j))))
+end function kronecker
+
 
 real function dotprod(vec1, vec2)
   implicit none
@@ -201,6 +218,9 @@ function sparse_mult(matrix, LM, vector)
       end do
     end do
   end do
+  
+  ! apply boundary conditions
+  
 end function sparse_mult
 
 
