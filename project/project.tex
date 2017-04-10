@@ -202,7 +202,7 @@ where the nodes have been numbered counterclockwise.
 \label{fig:FEmesh}
 \end{figure}
 
-For structured meshed, this location matrix is fairly easy to determine, but for unstructured meshes where there is not necessarily a pattern to the node connectivity, would be provided by a meshing software such as Cubit. Once this location matrix is known, the elemental systems of equations \(K_{ij}^ec_j^e=R_i^e\) can be assembled into the global system of equations \(K_{ij}c_j=R_i\). The fundamental reason why it is preferred to assemble the equations for each element individually, and {\tt then} assemble these into a global system, is that we have chosen shape functions that are only nonzero over an element and its immediate neighbors. This algorithm is inherently local until we get to the step requiring continuity, and it is hence natural to avoid unnecessary computations of zero integrals by only computing the integrals over each element, and then assembling these systems together at the end right before the numerical solve. The following code illustrates how the entries in elementary stiffness matrix {\tt kel} and elementary load vector {\tt rel} are assembled. For better illustration, several entries of \textbf{K} are assembled as follows for the location matrix given in Eq. \eqref{eq:LM}.
+For structured meshed, this location matrix is fairly easy to determine, but for unstructured meshes where there is not necessarily a pattern to the node connectivity, would be provided by a meshing software such as Cubit. Once this location matrix is known, the elemental systems of equations \(K_{ij}^ec_j^e=R_i^e\) can be assembled into the global system of equations \(K_{ij}c_j=R_i\). The fundamental reason why it is preferred to assemble the equations for each element individually, and {\tt then} assemble these into a global system, is that we have chosen shape functions that are only nonzero over an element and its immediate neighbors. This algorithm is inherently local until we get to the step requiring continuity, and it is hence natural to avoid unnecessary computations of zero integrals by only computing the integrals over each element, and then assembling these systems together at the end right before the numerical solve. For better illustration, several entries of \textbf{K} are assembled as follows for the location matrix given in Eq. \eqref{eq:LM}.
 
 \beqa
 K(1, 1) =& k(1, 1)^{e=1}\\
@@ -212,23 +212,7 @@ K(2, 11) =& k(2, 3)^{e=1}\\
 K(12, 12) =& k(3, 3)^{e=2}+k(4, 4)^{e=3}\\
 \eeqa
 
-where a new notation of lowercase \(k\) representing \(K^e\) is used.
-
-\begin{lstlisting}
-kel = 0.0
-rel = 0.0
-
-do q = 1, n_qp ! loop over the quadrature points
-  do i = 1, n_en ! loop over elemental i
-    rel(i) = rel(i) + wt(q) * source * phi(i, q) * h *h / 2.0
-    do j = 1, n_en ! loop over elemental j
-        kel(i, j) = kel(i, j) + wt(q) * dphi(i, q) * k * dphi(j, q) * 2.0
-    end do
-  end do
-end do
-\end{lstlisting}
-
-Once the global matrix has been assembled, any Dirichlet boundary conditions must be applied (Neumann boundary conditions have naturally been applied by the form of the perimeter integral in Eq. \eqref{eq:k}. Dirichlet boundary conditions are strictly imposed by removing the Dirichlet nodes from the global matrix system. For a 1-D domain consisting of four linear elements (two nodes per element), the global matrix system \(\textbf{K}c=\textbf{R}\) before imposition of Dirichlet boundary conditions is:
+where a new notation of lowercase \(k\) representing \(K^e\) is used. Once the global matrix has been assembled, any Dirichlet boundary conditions must be applied (Neumann boundary conditions have naturally been applied by the form of the perimeter integral in Eq. \eqref{eq:k}. Dirichlet boundary conditions are strictly imposed by removing the Dirichlet nodes from the global matrix system. For a 1-D domain consisting of four linear elements (two nodes per element), the global matrix system \(\textbf{K}c=\textbf{R}\) before imposition of Dirichlet boundary conditions is:
 
 \beq
 \textbf{K}=
@@ -323,6 +307,103 @@ So, given an initial guess for the solution \(a\), CG iterations are performed u
 
 \section{Serial Implementation}
 
-This s
+This section discusses the serial code that is used as a launching point for parallel algorithms. As a nuclear engineering graduate student interested in computational methods, you will quickly learn that the consequences of errors in neutron transport codes used to design nuclear reactors can potentially be very high. For instance, the criticality of a nuclear reactor is expressed as an eigenvalue of the neutron transport equation - when this eigenvalue equals 1.0, the system is critical, and a safe, self-sustaining chain reaction can be obtained. However, if this eigenvalue is 1.0065, the system is supercritical, and without safety systems, a runaway chain reaction can result and be very dangerous. These tight design margins require very accurate modeling codes. Hence, in the nuclear power field, there is very slow acceptance of new modeling codes, since each new code must undergo rigorous verification and validation. Due to this feature, {\it many} nuclear simulation codes are written in Fortran, though there is an ongoing effort to convert legacy codes to more modern languages. So, I used this project as an opportunity to learn how to program in Fortran 2003. 
+
+The serial code allows the user to input the domain length, number of finite elements, order of the interpolation, and domain Dirichlet boundary conditions from the command line. Then, several problem parameters such as the number of total nodes are computed. For the purpose of computing integrals, Gaussian quadrature is used. Because these quadrature points and weights are held fixed throughout the entire simulation, they only need to be initialized one time. All elementary integrals (over \(\Omega^e\)) are computed in a master element defined over \(-1\leq\xi\leq1\), rather than \(a\leq x\leq b\) in the physical domain. Hence, the elementary integrals are computed in this master element using the Jacobian of the transformation \(\mathscr{J}\):
+
+\beq
+\mathscr{J}=\frac{dx}{d\xi}=\frac{h}{2}
+\eeq
+
+where \(h\) is the element length in the physical domain and 2 the length in the master domain. Likewise, instead of defining shape functions individually for each finite element, they can be defined {\it once} in the master domain. Then, the elementary stiffness matrix and load vector become:
+
+\beq
+K_{ij}^e=\int_{-1}^{1}\frac{\partial \phi_j(\xi)}{\partial \xi}k\frac{\partial\phi_i(\xi)}{\partial \xi}\frac{1}{\mathscr{J}}d\xi-\int_{\Gamma^e}k\frac{\partial \phi_j(\xi)}{\partial \xi}\phi_i(\xi)\cdot\hat{n}d\xi
+\eeq
+
+\beq
+R_{i}^e=\int_{-1}^{1}\dot{q}\phi_i(\xi)\mathscr{J}d\xi
+\eeq
+
+For linear elements, these nodal shape functions are:
+
+\beqa
+\phi_1(\xi)=\frac{1-\xi}{2}\\
+\phi_2(\xi)=\frac{1+\xi}{2}\\
+\eeqa
+
+Higher-order shape functions can also easily be defined. These integrals are computed using Gaussian quadrature:
+
+\beq
+K_{ij}^e\approx\sum_{p=1}^{P}w_p\frac{\partial \phi_j(\xi_p)}{\partial \xi}k\frac{\partial\phi_i(\xi_p)}{\partial \xi}\frac{1}{\mathscr{J}}
+\eeq
+
+\beq
+R_{i}^e\approx\sum_{p=1}^{P}w_p\dot{q}\phi_i(\xi_p)\mathscr{J}
+\eeq
+
+Because these quadrature points don't change throughout the simulation, the evaluation of the shape functions and their first derivatives at these quadrature points only needs to be determined once. In previous classes I have taken on the FEM, I had never made this connection, and had wasted flops re-computing these for every finite element. These values are stored in arrays {\tt phi} and {\tt dphi}, where each column pertains to an element, and each row to a quadrature point. These arrays are organized as such because the loops that assemble the global stiffness matrix and load vector loop over elements as the outermost loop. Because Fortran stores arrays in a column-major format, this should allow accesses to elements of the {\tt phi} and {\tt dphi} arrays faster.
+
+\begin{lstlisting}
+subroutine phi_val(order, qp)
+  implicit none
+  integer,  intent(in)  :: order
+  real(rk), intent(in)  :: qp(:)
+
+  ! only linear and quadratic elements are supported
+  select case(order)
+    case(1)
+      phi(1, :)  = (1.0 - qp(:)) / 2.0
+      phi(2, :)  = (1.0 + qp(:)) / 2.0
+      dphi(1, :) = -1.0 / 2.0
+      dphi(2, :) =  1.0 / 2.0
+    case(2)
+      phi(1, :)  = qp(:) * (qp(:) - 1.0) / 2.0
+      phi(2, :)  = (1.0 - qp(:)) * (1.0 + qp(:))
+      phi(3, :)  = qp(:) * (qp(:) + 1.0) / 2.0
+      dphi(1, :) = (2.0 * qp(:) - 1.0) / 2.0
+      dphi(2, :) = 1.0 - qp(:) * qp(:)
+      dphi(3, :) = (2.0 * qp(:) + 1.0) / 2.0
+    case default
+      write(*,*) "phi and dphi not initialized due to polynomial order not being supported."
+  end select
+end subroutine phi_val
+\end{lstlisting}
+
+\(k\) and \(\dot{q}\) are assumed constant, which is a good approximation for nuclear applications where the thermal conductivity of the fuel changes slowly with fuel depletion and the heat source is kept constant through operator changes such as moving control rods in the reactor core. Then, the elemental stiffness matrix and load vector are computed, which will be the same for every element since \(k\) and \(\dot{q}\) are constant, and equal-sized elements are used. This is performed by looping over the quadrature points, and then over the {\tt i} and {\tt j} indices. 
+
+\begin{lstlisting}
+kel = 0.0
+rel = 0.0
+do q = 1, n_qp ! quadrature point is slowest varying
+  do i = 1, n_en
+    rel(i) = rel(i) + wt(q) * source * phi(i, q) * h *h / 2.0
+    do j = 1, n_en
+      kel(i, j) = kel(i, j) + wt(q) * dphi(i, q) * k * dphi(j, q) * 2.0
+    end do
+  end do
+end do
+\end{lstlisting}
+
+Because structured meshes are used, the location matrix is next defined, which can be defined in an analytical way due to the simplicity of the mesh.
+
+\begin{lstlisting}
+subroutine locationmatrix()
+  implicit none
+  integer :: i, j       ! looping variables
+
+  ! only works for 1-D elements
+  do j = 1, n_el
+    do i = 1, n_en
+      LM(i, j) = (j - 1) * (n_en - 1) + i
+    end do
+  end do
+end subroutine locationmatrix
+\end{lstlisting}
+
+
+
+
+
 
 \end{document}
