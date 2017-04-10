@@ -98,7 +98,6 @@ allocate(BCs(2), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of BCs array failed."
 BCs = (/1, n_nodes/)
 
-
 ! form the global load vector
 allocate(rglob(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
@@ -127,34 +126,8 @@ if (AllocateStatus /= 0) STOP "Allocation of res array failed."
 rglob(1) = leftBC                ! left BC value
 rglob(n_nodes) = rightBC         ! right BC value     
 
-! conjugate gradient solver for solving kglob * a = rglob
-aprev       = 1.0
-res         = rglob - sparse_mult(kel, LM, aprev)
-zprev       = res
-lambda      = dotprod(zprev, res) / dotprod(zprev, sparse_mult(kel, LM, zprev))
-a           = aprev + lambda * zprev
-convergence = 0.0
+call conjugategradient()
 
-do i = 1, n_nodes
-  convergence = convergence + abs(a(i) - aprev(i))
-end do
-
-cnt = 0
-do while (convergence > tol)
-  aprev  = a
-  res    = rglob - sparse_mult(kel, LM, aprev)
-  theta  = - dotprod(res, sparse_mult(kel, LM, zprev)) / dotprod(zprev, sparse_mult(kel, LM, zprev))
-  z      = res + theta * zprev
-  lambda = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
-  a      = aprev + lambda * z
-  zprev  = z
-
-  convergence = 0.0
-  do i = 1, n_nodes
-    convergence = convergence + abs(a(i) - aprev(i))
-  end do
-  cnt = cnt + 1
-end do
 
 print *, 'CG iterations: ', cnt
 
@@ -176,6 +149,38 @@ write(2, *) 'elements: ', n_el, ', total time: ', finish - start
 deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, aprev, z, zprev, res, LM)
 
 CONTAINS ! define all internal procedures
+
+subroutine conjugategradient()
+  ! conjugate gradient solver for solving kglob * a = rglob
+  aprev       = 1.0
+  res         = rglob - sparse_mult(kel, LM, aprev)
+  zprev       = res
+  lambda      = dotprod(zprev, res) / dotprod(zprev, sparse_mult(kel, LM, zprev))
+  a           = aprev + lambda * zprev
+  convergence = 0.0
+  
+  do i = 1, n_nodes
+    convergence = convergence + abs(a(i) - aprev(i))
+  end do
+  
+  cnt = 0
+  do while (convergence > tol)
+    aprev  = a
+    res    = rglob - sparse_mult(kel, LM, aprev)
+    theta  = - dotprod(res, sparse_mult(kel, LM, zprev)) / dotprod(zprev, sparse_mult(kel, LM, zprev))
+    z      = res + theta * zprev
+    lambda = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
+    a      = aprev + lambda * z
+    zprev  = z
+  
+    convergence = 0.0
+    do i = 1, n_nodes
+      convergence = convergence + abs(a(i) - aprev(i))
+    end do
+    cnt = cnt + 1
+  end do
+end subroutine conjugategradient
+
 
 integer function kronecker(i, j)
   integer :: i, j
