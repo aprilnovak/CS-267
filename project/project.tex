@@ -266,9 +266,7 @@ k(2, 1)^{e=1} & k(2, 2)^{e=1}+k(1, 1)^{e=2} & k(1, 2)^{e=2} & 0 & 0\\
 \end{bmatrix}
 \eeq
 
-Once these boundary conditions have been incorporated into the matrix system, the matrix system can be solved by your favorite linear algebra routine. For this assignment, the Conjugate Gradient (CG) method is selected to solve this symmetric system because this will provide more flexibility for exploring parallelization algorithms than simply using some routine from BLAS or LAPACK. To solve a matrix system \(\textbf{K}a=R\) by the CG method 
-
- are motivated by the definition of the potential in Eq. \eqref{eq:PotentialFE}. The notation for vectors is dropped for simplicity. In matrix form, the potential \(\mathscr{T}\) is denoted as \(\Pi\) to reflect the fact that it is a minimizer:
+Once these boundary conditions have been incorporated into the matrix system, the matrix system can be solved by your favorite linear algebra routine. For this assignment, the Conjugate Gradient (CG) method is selected to solve this symmetric system because this will provide more flexibility for exploring parallelization algorithms than simply using some routine from BLAS or LAPACK. To solve a matrix system \(\textbf{K}a=R\) by the CG method requires rewriting the governing equation as the minimization of a potential \(\Pi\) (recall from elementary physics classes that you can equivalently state that a system is balance by the sum of the forces equalling zero, {\it or} the total energy of the system being minimized). 
 
 \beq
 \label{eq:IterativeMethodsPotential}
@@ -281,44 +279,20 @@ The exact solution is obtained by taking the gradient of this potential with res
 \frac{\partial\Pi}{\partial a}=\textbf{K}a-R=0
 \eeq
 
-This is not different than simply solving the original matrix system \(\textbf{K}a-R=0\). So, the minimizer to the potential \(\Pi\) is also a solution to the matrix system. Krylov methods are a class of methods that successively update an initial iterate guess in ways that minimize \(\Pi\) with each iteration. This minimization takes place over a vector space, called a Krylov space. These methods require computation of the residual, usually computed as the negative of the residual from Eq. \eqref{eq:residual}:
+This is not different than simply solving the original matrix system \(\textbf{K}a-R=0\). So, the minimizer to the potential \(\Pi\) is also a solution to the matrix system. Krylov methods are a class of methods that successively update an initial iterate guess in ways that minimize \(\Pi\) with each iteration. This minimization takes place over a vector space, called a Krylov space. These methods require computation of the residual:
 
 \beq
 r^i=R-\textbf{K}a^i
 \eeq
 
-where \(i\) is the iteration index. The simplest of these methods is the Method of Steepest Descent. This method is based upon the idea that, if \(\nabla\Pi\) does not equal zero, then the fastest way to get to the zero of \(\nabla\Pi\) is to search in a direction opposite the gradient of \(\Pi\) (since gradients point towards higher values, rather than towards minimum values). The iterates are updated by a factor scaling the residual:
-
-\beq
-\label{eq:NextIterateMSD}
-a^{i+1}=a^i+\lambda^ir^i
-\eeq
-
-where the optimal choice for the scaling parameter \(\lambda^i\) can be selected such that the potential \(\Pi\) is a global minimum. Plugging in Eq. \eqref{eq:NextIterateMSD} to Eq. \eqref{eq:IterativeMethodsPotential}:
-
-\beqa
-\Pi=&\ \frac{1}{2}(a^i+\lambda^ir^i)^T\textbf{K}(a^i+\lambda^ir^i)-(a^i+\lambda^ir^i)^TR\\
-\Pi=&\ \frac{1}{2}\left(a^{i,t}\textbf{K}a^i+a^{i,T}\textbf{K}\lambda^ir^i+(\lambda^ir^i)^T\textbf{K}a^i+(\lambda^ir^i)^T\textbf{K}\lambda^ir^i\right)-(a^i+\lambda^ir^i)^TR\\
-\Pi=&\ \frac{1}{2}\left(a^{i,t}\textbf{K}a^i+2a^{i,T}\textbf{K}\lambda^ir^i+(\lambda^ir^i)^T\textbf{K}\lambda^ir^i\right)-(a^i+\lambda^ir^i)^TR\\
-\eeqa
-
-Then, the optimal \(\lambda^i\) for the method of steepest descent occurs for \(\partial\Pi/\partial\lambda^i=0\):
-
-\beq
-\label{eq:UpdateMSD}
-\lambda^i=\frac{r^{T,i}r^i}{r^{T,i}\textbf{K}r^i}
-\eeq
-
-where it was assumed that \(\textbf{K}\) was symmetric. So, Eq. \eqref{eq:UpdateMSD} and \eqref{eq:NextIterateMSD} fully specify how to apply the method of steepest descent. Because the true solution is not known, after each iteration, an error measurement is computed in order to determine when to stop iterations. This error measurement can be based by finding the difference between the current and previous iterate to see if the solution has reached its asymptotic value.\newline
-
-The method of steepest descent is not very efficient, and its convergence properties are poorer than other similar iterative methods. The \gls{cg} method is one of the most commonly-used iterative solution methods, and deserves a brief discussion. The \gls{cg} method, while used as an iterative method, is technically a direct method if applied \(N\) times with perfect precision. Each update is performed similarly to the method of steepest descent:
+where \(i\) is the iteration index. The CG method, while used as an iterative method, is technically a direct method if applied \(N\) times with perfect precision. Each update to the solution iterates is performed according to:
 
 \beq
 \label{eq:CGUpdate}
 a^{i+1}=a^i+\lambda^iz^i
 \eeq
 
-where, instead of scaling by the residual, the update scales by \(z^i\):
+where the update scales by \(z^i\):
 
 \beq
 \label{eq:ZUpdateCG}
@@ -338,13 +312,17 @@ In other words, the search direction is a combination of a move in the reverse d
 \theta^i=-\frac{r^{T,i}\textbf{K}z^{i-1}}{z^{T,i-1}\textbf{K}z^{i-1}}
 \eeq
 
-The optimum choice for \(\lambda^i\) must be re-derived, as it is not the same as in the method of steepest descent. Plugging in Eq. \eqref{eq:CGUpdate} into Eq. \eqref{eq:IterativeMethodsPotential} and then taking the partial derivative with respect to \(\lambda^i\), the optimal \(\lambda^i\) is:
+Plugging in Eq. \eqref{eq:CGUpdate} into Eq. \eqref{eq:IterativeMethodsPotential} and then taking the partial derivative with respect to \(\lambda^i\), the optimal \(\lambda^i\) is:
 
 \beq
 \label{eq:UpdateCG}
 \lambda^i=\frac{z^{T,i}r^i}{z^{T,i}\textbf{K}z^i}
 \eeq
 
-Like with the method of steepest descent, iterations proceed until reaching some acceptable error. 
+So, given an initial guess for the solution \(a\), CG iterations are performed until there is acceptably small difference between two successive iterates \(a^i\) and \(a^{i+1}\). This numerical method is selected due to its relative simplicity. This concludes the theoretical discussion of the FEM applied to this simple 1-D heat equation. The next section discusses steps taken to obtain a fast serial implementation of this algorithm, and will go into more detail regarding exactly how this method can be implemented in code.
+
+\section{Serial Implementation}
+
+This s
 
 \end{document}
