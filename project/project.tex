@@ -131,10 +131,220 @@ where there are \(N\) of these expansion functions defined over the entire domai
 
 \beqa
 \int_{\Omega}\frac{\partial \sum_{j=1}^Nc_j\phi_j(x)}{\partial x}k\frac{\partial\sum_{i=1}^Nb_i\phi_i(x)}{\partial x}dx-\int_{\Gamma}k\frac{\partial \sum_{j=1}^Nc_j\phi_j(x)}{\partial x}\sum_{i=1}^N\phi_i(x)\cdot\hat{n}dx=&\int_{\Omega}\dot{q}\sum_{i=1}^Nb_i\phi_i(x)dx\\
-\int_{\Omega}\frac{\partial \sum_{j=1}^Nc_j\phi_j(x)}{\partial x}k\frac{\partial\sum_{i=1}^Nb_i\phi_i(x)}{\partial x}dx-\int_{\Gamma}k\frac{\partial \sum_{j=1}^Nc_j\phi_j(x)}{\partial x}\sum_{i=1}^N\phi_i(x)\cdot\hat{n}dx=&\int_{\Omega}\dot{q}\sum_{i=1}^N\phi_i(x)dx\\
+\int_{\Omega}\frac{\partial \sum_{j=1}^Nc_j\phi_j(x)}{\partial x}k\frac{\partial\sum_{i=1}^N\phi_i(x)}{\partial x}dx-\int_{\Gamma}k\frac{\partial \sum_{j=1}^Nc_j\phi_j(x)}{\partial x}\sum_{i=1}^N\phi_i(x)\cdot\hat{n}dx=&\int_{\Omega}\dot{q}\sum_{i=1}^N\phi_i(x)dx\\
 \eeqa
 
-where the coefficients \(b_i\) can be cancelled from each term because they are arbitrary. 
+where the coefficients \(b_i\) can be cancelled from each term because they are arbitrary. While this equation holds for \(i=1, N\) and \(j=1, N\), it is true that it also holds for each individual selection of \(i\) and \(j\). This stronger requirements allows the summation terms to be removed, with the implication that we have changed one equation to \(N\) equations:
 
+\beqa
+c_j\int_{\Omega}\frac{\partial \phi_j(x)}{\partial x}k\frac{\partial\phi_i(x)}{\partial x}dx-c_j\int_{\Gamma}k\frac{\partial \phi_j(x)}{\partial x}\phi_i(x)\cdot\hat{n}dx=&\int_{\Omega}\dot{q}\phi_i(x)dx\\
+\eeqa
+
+The above can be written in more concise form using matrix notation. The stiffness matrix \textbf{K} is:
+
+\beq
+\label{eq:k}
+K_{ij}=\int_{\Omega}\frac{\partial \phi_j(x)}{\partial x}k\frac{\partial\phi_i(x)}{\partial x}dx-\int_{\Gamma}k\frac{\partial \phi_j(x)}{\partial x}\phi_i(x)\cdot\hat{n}dx
+\eeq
+
+and the load vector \(\textbf{R}\) is:
+
+\beq
+R_{i}=\int_{\Omega}\dot{q}\phi_i(x)dx
+\eeq
+
+which gives a set of linear equations that is solved for \(c_j\):
+
+\beq
+K_{ij}c_j=R_i
+\eeq
+
+The stiffness matrix consists of the multiplication of the derivatives of \(\phi_i(x)\) with \(\phi_j(x)\). If these shape functions are defined over the {\tt entire} domain, then the stiffness matrix will be a dense matrix. On the other hand, if we choose these shape functions to be nonzero only over a single small region of the domain, then the product of cross terms will be zero for most of the matrix, since the effect of a single shape function will be very localized. This will produce sparse matrices, which will be much easier to work with and will also permit easier extension as a numerical method over a discretized domain. Hence, the expansion for the solution and test function for a {\it single} element (``element'' is used in this sense as a small region of the domain, i.e. a meshing software would divide up a continuous domain into discrete elements) becomes:
+
+\beq
+T_h^e=\sum_{j=1}^{n_{en}}c_j^e\phi_j^e(x)
+\eeq
+
+where the \(e\) superscript indicates the element and \(n_{en}\) are the number of element nodes. A nodal basis is selected for the shape functions. This means that, over a single element, the shape functions are unity at their corresponding node, and zero at the other nodes. The matrix equation \(K_{ij}c_j=R_i\) can be written for written for each individual element, with a post-processing step that takes the system of equations for each element and connects them all together to enforce solution continuity at element interfaces. 
+
+\beq
+K_{ij}^ec_j^e=R_i^e
+\eeq
+
+where
+
+\beq
+K_{ij}^e=\int_{\Omega^e}\frac{\partial \phi_j(x)}{\partial x}k\frac{\partial\phi_i(x)}{\partial x}dx-\int_{\Gamma^e}k\frac{\partial \phi_j(x)}{\partial x}\phi_i(x)\cdot\hat{n}dx
+\eeq
+
+\beq
+R_{i}^e=\int_{\Omega^e}\dot{q}\phi_i(x)dx
+\eeq
+
+such that the domain of integration is only over a single element. However, the system of equations for each element, \(K_{ij}^ec_j^e=R_i^e\), is singular, and cannot be solved independently of the other elements, since we require solution continuity at inter-element nodes. So, the elemental system of equations must be assembled into the global system of equations using a location matrix that dictates how the global nodes in the entire mesh relate to the local node numbering in each finite element. Figure \ref{fig:FEmesh} shows a simple FE mesh, where the numbers illustrate the global node numbering. A mapping is required from the elemental perspective to this global mesh. The location matrix contains this information - each column of the location matrix gives the global node numbers that correspond to the local node numbers. The local nodes must always be numbered in a consistent manner (i.e. always clockwise or always counterclockwise) so that the Jacobian of the local to global transformation is positive. The first five columns of the location matrix for this mesh, for illustration, would be:
+
+\beq
+\label{eq:LM}
+LM=\begin{bmatrix}
+1 & 2 & 3 & 4 & 5 & \cdots\\
+2 & 3 & 4 & 5 & 6 & \cdots\\
+11 & 12 & 13 & 14 & 15 & \cdots\\
+10 & 11 & 12 & 13 & 14 & \cdots\\
+\end{bmatrix}
+\eeq
+
+where the nodes have been numbered counterclockwise.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{figures/FEmesh.pdf}
+\caption{Global node numbering in a simple FE mesh. Source:\newline {\tt http://opensees.berkeley.edu/wiki/index.php/}\newline{\tt Simply\_supported\_beam\_modeled\_with\_two\_dimensional\_solid\_elements}}
+\label{fig:FEmesh}
+\end{figure}
+
+For structured meshed, this location matrix is fairly easy to determine, but for unstructured meshes where there is not necessarily a pattern to the node connectivity, would be provided by a meshing software such as Cubit. Once this location matrix is known, the elemental systems of equations \(K_{ij}^ec_j^e=R_i^e\) can be assembled into the global system of equations \(K_{ij}c_j=R_i\). The fundamental reason why it is preferred to assemble the equations for each element individually, and {\tt then} assemble these into a global system, is that we have chosen shape functions that are only nonzero over an element and its immediate neighbors. This algorithm is inherently local until we get to the step requiring continuity, and it is hence natural to avoid unnecessary computations of zero integrals by only computing the integrals over each element, and then assembling these systems together at the end right before the numerical solve. The following code illustrates how the entries in elementary stiffness matrix {\tt kel} and elementary load vector {\tt rel} are assembled. For better illustration, several entries of \textbf{K} are assembled as follows for the location matrix given in Eq. \eqref{eq:LM}.
+
+\beqa
+K(1, 1) =& k(1, 1)^{e=1}\\
+K(1, 2) =& k(1, 2)^{e=1}\\
+K(2, 2) =& k(2, 2)^{e=1}+k(1, 1)^{e=2}\\
+K(2, 11) =& k(2, 3)^{e=1}\\
+K(12, 12) =& k(3, 3)^{e=2}+k(4, 4)^{e=3}\\
+\eeqa
+
+where a new notation of lowercase \(k\) representing \(K^e\) is used.
+
+\begin{lstlisting}
+kel = 0.0
+rel = 0.0
+
+do q = 1, n_qp ! loop over the quadrature points
+  do i = 1, n_en ! loop over elemental i
+    rel(i) = rel(i) + wt(q) * source * phi(i, q) * h *h / 2.0
+    do j = 1, n_en ! loop over elemental j
+        kel(i, j) = kel(i, j) + wt(q) * dphi(i, q) * k * dphi(j, q) * 2.0
+    end do
+  end do
+end do
+\end{lstlisting}
+
+Once the global matrix has been assembled, any Dirichlet boundary conditions must be applied (Neumann boundary conditions have naturally been applied by the form of the perimeter integral in Eq. \eqref{eq:k}. Dirichlet boundary conditions are strictly imposed by removing the Dirichlet nodes from the global matrix system. For a 1-D domain consisting of four linear elements (two nodes per element), the global matrix system \(\textbf{K}c=\textbf{R}\) before imposition of Dirichlet boundary conditions is:
+
+\beq
+\textbf{K}=
+\begin{bmatrix}
+k(1, 1)^{e=1} & k(1, 2)^{e=1} & 0 & 0 & 0\\
+k(2, 1)^{e=1} & k(2, 2)^{e=1}+k(1, 1)^{e=2} & k(1, 2)^{e=2} & 0 & 0\\
+0 & k(2, 1)^{e=2} & k(2, 2)^{e=2}+k(1, 1)^{e=3} & k(1, 2)^{e=3} & 0\\
+0 & 0 & k(2, 1)^{e=3} & k(2, 2)^{e=3}+k(1, 1)^{e=4} & k(1, 2)^{e=4}\\
+0 & 0 & 0 & k(2, 1)^{e=4} & k(2, 2)^{e=4}\\
+\end{bmatrix}
+\eeq
+
+\beq
+\textbf{R}=\begin{bmatrix}
+R_1^{e=1} \\ R_2^{e=1}+R_1^{e=2}\\R_2^{e=2}+R_1^{e=3}\\R_2^{e=3}+R_1^{e=4}\\R_2^{e=4}\\
+\end{bmatrix}
+\eeq
+
+To apply Dirichlet boundary conditions at nodes \(1\) and \(5\), the off-diagonal terms in the stiffness matrix are set to zero and the corresponding terms in the global load vector are set to the Dirichlet values. For instance, to impose Dirichlet conditions of \(T(node 1)=3.5\) and \(T(node 5) = 10.5\), the global matrix system becomes:
+
+\beq
+\textbf{K}=
+\begin{bmatrix}
+1 & 0 & 0 & 0 & 0\\
+k(2, 1)^{e=1} & k(2, 2)^{e=1}+k(1, 1)^{e=2} & k(1, 2)^{e=2} & 0 & 0\\
+0 & k(2, 1)^{e=2} & k(2, 2)^{e=2}+k(1, 1)^{e=3} & k(1, 2)^{e=3} & 0\\
+0 & 0 & k(2, 1)^{e=3} & k(2, 2)^{e=3}+k(1, 1)^{e=4} & k(1, 2)^{e=4}\\
+0 & 0 & 0 & 0 & 1\\
+\end{bmatrix}
+\eeq
+
+\beq
+\textbf{R}=\begin{bmatrix}
+3.5\\ R_2^{e=1}+R_1^{e=2}\\R_2^{e=2}+R_1^{e=3}\\R_2^{e=3}+R_1^{e=4}\\10.5\\
+\end{bmatrix}
+\eeq
+
+Once these boundary conditions have been incorporated into the matrix system, the matrix system can be solved by your favorite linear algebra routine. For this assignment, the Conjugate Gradient (CG) method is selected to solve this symmetric system because this will provide more flexibility for exploring parallelization algorithms than simply using some routine from BLAS or LAPACK. To solve a matrix system \(\textbf{K}a=R\) by the CG method 
+
+ are motivated by the definition of the potential in Eq. \eqref{eq:PotentialFE}. The notation for vectors is dropped for simplicity. In matrix form, the potential \(\mathscr{T}\) is denoted as \(\Pi\) to reflect the fact that it is a minimizer:
+
+\beq
+\label{eq:IterativeMethodsPotential}
+\Pi=\frac{1}{2}a^T\textbf{K}a-a^TR
+\eeq
+
+The exact solution is obtained by taking the gradient of this potential with respect to each of the expansion coefficients in the vector \(a\), and setting that gradient equal to zero:
+
+\beq
+\frac{\partial\Pi}{\partial a}=\textbf{K}a-R=0
+\eeq
+
+This is not different than simply solving the original matrix system \(\textbf{K}a-R=0\). So, the minimizer to the potential \(\Pi\) is also a solution to the matrix system. Krylov methods are a class of methods that successively update an initial iterate guess in ways that minimize \(\Pi\) with each iteration. This minimization takes place over a vector space, called a Krylov space. These methods require computation of the residual, usually computed as the negative of the residual from Eq. \eqref{eq:residual}:
+
+\beq
+r^i=R-\textbf{K}a^i
+\eeq
+
+where \(i\) is the iteration index. The simplest of these methods is the Method of Steepest Descent. This method is based upon the idea that, if \(\nabla\Pi\) does not equal zero, then the fastest way to get to the zero of \(\nabla\Pi\) is to search in a direction opposite the gradient of \(\Pi\) (since gradients point towards higher values, rather than towards minimum values). The iterates are updated by a factor scaling the residual:
+
+\beq
+\label{eq:NextIterateMSD}
+a^{i+1}=a^i+\lambda^ir^i
+\eeq
+
+where the optimal choice for the scaling parameter \(\lambda^i\) can be selected such that the potential \(\Pi\) is a global minimum. Plugging in Eq. \eqref{eq:NextIterateMSD} to Eq. \eqref{eq:IterativeMethodsPotential}:
+
+\beqa
+\Pi=&\ \frac{1}{2}(a^i+\lambda^ir^i)^T\textbf{K}(a^i+\lambda^ir^i)-(a^i+\lambda^ir^i)^TR\\
+\Pi=&\ \frac{1}{2}\left(a^{i,t}\textbf{K}a^i+a^{i,T}\textbf{K}\lambda^ir^i+(\lambda^ir^i)^T\textbf{K}a^i+(\lambda^ir^i)^T\textbf{K}\lambda^ir^i\right)-(a^i+\lambda^ir^i)^TR\\
+\Pi=&\ \frac{1}{2}\left(a^{i,t}\textbf{K}a^i+2a^{i,T}\textbf{K}\lambda^ir^i+(\lambda^ir^i)^T\textbf{K}\lambda^ir^i\right)-(a^i+\lambda^ir^i)^TR\\
+\eeqa
+
+Then, the optimal \(\lambda^i\) for the method of steepest descent occurs for \(\partial\Pi/\partial\lambda^i=0\):
+
+\beq
+\label{eq:UpdateMSD}
+\lambda^i=\frac{r^{T,i}r^i}{r^{T,i}\textbf{K}r^i}
+\eeq
+
+where it was assumed that \(\textbf{K}\) was symmetric. So, Eq. \eqref{eq:UpdateMSD} and \eqref{eq:NextIterateMSD} fully specify how to apply the method of steepest descent. Because the true solution is not known, after each iteration, an error measurement is computed in order to determine when to stop iterations. This error measurement can be based by finding the difference between the current and previous iterate to see if the solution has reached its asymptotic value.\newline
+
+The method of steepest descent is not very efficient, and its convergence properties are poorer than other similar iterative methods. The \gls{cg} method is one of the most commonly-used iterative solution methods, and deserves a brief discussion. The \gls{cg} method, while used as an iterative method, is technically a direct method if applied \(N\) times with perfect precision. Each update is performed similarly to the method of steepest descent:
+
+\beq
+\label{eq:CGUpdate}
+a^{i+1}=a^i+\lambda^iz^i
+\eeq
+
+where, instead of scaling by the residual, the update scales by \(z^i\):
+
+\beq
+\label{eq:ZUpdateCG}
+z^i=r^i+\theta^iz^{i-1}
+\eeq
+
+where \(\theta^i\) is a parameter chosen such that \(z^i\) is \(\textbf{K}\)-conjugate to \(z^{i-1}\), or:
+
+\beq
+\label{eq:kconjugate}
+z^{T,i}\textbf{K}z^{i-1}=0
+\eeq
+
+In other words, the search direction is a combination of a move in the reverse direction of the gradient (method of steepest descent) plus a motion perpendicular to that direction. This helps to avoid duplicate searching in the same general area. For the very first iteration, it is common to select \(z^1=r^1\). Simply plugging in Eq. \eqref{eq:ZUpdateCG} to Eq. \eqref{eq:kconjugate} gives:
+
+\beq
+\theta^i=-\frac{r^{T,i}\textbf{K}z^{i-1}}{z^{T,i-1}\textbf{K}z^{i-1}}
+\eeq
+
+The optimum choice for \(\lambda^i\) must be re-derived, as it is not the same as in the method of steepest descent. Plugging in Eq. \eqref{eq:CGUpdate} into Eq. \eqref{eq:IterativeMethodsPotential} and then taking the partial derivative with respect to \(\lambda^i\), the optimal \(\lambda^i\) is:
+
+\beq
+\label{eq:UpdateCG}
+\lambda^i=\frac{z^{T,i}r^i}{z^{T,i}\textbf{K}z^i}
+\eeq
+
+Like with the method of steepest descent, iterations proceed until reaching some acceptable error. 
 
 \end{document}
