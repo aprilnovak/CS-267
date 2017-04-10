@@ -33,6 +33,7 @@ real(rk) :: start              ! holds run times
 real(rk) :: finish             ! holds run times
 
 integer,  dimension(:, :), allocatable :: LM     ! location matrix
+integer,  dimension(:),    allocatable :: BCs    ! boundary condition nodes
 real(rk), dimension(:),    allocatable :: qp     ! quadrature points
 real(rk), dimension(:),    allocatable :: wt     ! quadrature weights
 real(rk), dimension(:),    allocatable :: x      ! coordinates of the nodes
@@ -91,6 +92,12 @@ end do
 allocate(LM(n_en, n_el), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
 call locationmatrix()
+
+! determine the boundary condition nodes
+allocate(BCs(2), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of BCs array failed."
+BCs = (/1, n_nodes/)
+
 
 ! form the global load vector
 allocate(rglob(n_nodes), stat = AllocateStatus)
@@ -156,11 +163,6 @@ open(1, file='output.txt', iostat=AllocateStatus, status="replace")
 if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 write(1, *) a(:)
 
-print *, 'kronecker delta of 0, 1: ', kronecker(0,1)
-print *, 'delta of 1, 1: ', kronecker(1, 1)
-print *, 'delta of 101, 304: ', kronecker(101, 304)
-
-
 ! deallocate memory 
 
 
@@ -210,17 +212,14 @@ function sparse_mult(matrix, LM, vector)
   do q = 1, n_el ! loop over the elements
     do i = 1, n_en ! loop over all entries in kel
       do j = 1, n_en
-        if ((LM(i, q) == 1) .and. (LM(j, q) /= 1)) then ! left boundary condition
-        else if ((LM(i, q) == n_nodes) .and. (LM(j, q) /= n_nodes)) then ! right boundary condition
+        if (any(BCs == LM(i, q))) then 
+          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + kronecker(LM(i, q), LM(j, q)) * matrix(i, j) * vector(LM(j, q))
         else
           sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + matrix(i, j) * vector(LM(j, q))
         end if
       end do
     end do
   end do
-  
-  ! apply boundary conditions
-  
 end function sparse_mult
 
 
