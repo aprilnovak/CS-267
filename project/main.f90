@@ -42,10 +42,10 @@ real(rk), dimension(:),    allocatable :: rel    ! elemental load vector
 real(rk), dimension(:, :), allocatable :: phi    ! shape functions
 real(rk), dimension(:, :), allocatable :: dphi   ! shape function derivatives
 real(rk), dimension(:),    allocatable :: rglob  ! global load vector
-real(rk), dimension(:),    allocatable :: a      ! conjugate gradient solution iterates
-real(rk), dimension(:),    allocatable :: aprev  ! conjugate gradient solution iterates
-real(rk), dimension(:),    allocatable :: z      ! conjugate gradient update iterates
-real(rk), dimension(:),    allocatable :: zprev  ! conjugate gradient update iterates
+real(rk), dimension(:),    allocatable :: a      ! CG solution iterates
+real(rk), dimension(:),    allocatable :: aprev  ! CG solution iterates
+real(rk), dimension(:),    allocatable :: z      ! CG update iterates
+real(rk), dimension(:),    allocatable :: zprev  ! CG update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
 
 ! initialize the thermal conductivity and heat source
@@ -55,9 +55,9 @@ tol = 0.001
 
 call cpu_time(start)
 
-call commandline(length, n_el, order, leftBC, rightBC) ! parse command line arguments
-call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem variables
-call quadrature(order, n_qp, qp, wt)                   ! initialize quadrature rule
+call commandline(length, n_el, order, leftBC, rightBC) ! parse command line args
+call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem vars
+call quadrature(order, n_qp, qp, wt)                   ! initialize quadrature
 
 allocate(phi(order + 1, n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
@@ -120,7 +120,7 @@ rglob(n_nodes) = rightBC         ! right BC value
 call conjugategradient()
 print *, 'CG iterations: ', cnt
 
-! write to an output file for plotting. If this file exists, it will be re-written.
+! write to an output file. If this file exists, it will be re-written.
 open(1, file='output.txt', iostat=AllocateStatus, status="replace")
 if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 write(1, *) a(:)
@@ -128,7 +128,8 @@ write(1, *) a(:)
 call cpu_time(finish)
 print *, 'runtime: ', finish - start
 
-open(2, file='timing.txt', status='old', action='write', form='formatted', position='append')
+open(2, file='timing.txt', status='old', action='write', &
+  form='formatted', position='append')
 write(2, *) 'elements: ', n_el, ', total time: ', finish - start
 
 deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, aprev, z, zprev, res, LM)
@@ -140,7 +141,7 @@ subroutine conjugategradient()
   aprev       = 1.0
   res         = rglob - sparse_mult(kel, LM, aprev)
   zprev       = res
-  lambda      = dotprod(zprev, res) / dotprod(zprev, sparse_mult(kel, LM, zprev))
+  lambda      = dotprod(zprev, res)/dotprod(zprev, sparse_mult(kel, LM, zprev))
   a           = aprev + lambda * zprev
   convergence = 0.0
   
@@ -152,7 +153,8 @@ subroutine conjugategradient()
   do while (convergence > tol)
     aprev  = a
     res    = rglob - sparse_mult(kel, LM, aprev)
-    theta  = - dotprod(res, sparse_mult(kel, LM, zprev)) / dotprod(zprev, sparse_mult(kel, LM, zprev))
+    theta  = - dotprod(res, sparse_mult(kel, LM, zprev)) / &
+               dotprod(zprev, sparse_mult(kel, LM, zprev))
     z      = res + theta * zprev
     lambda = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
     a      = aprev + lambda * z
@@ -204,10 +206,11 @@ function sparse_mult(matrix, LM, vector)
       do j = 1, n_en
         if (any(BCs == LM(i, q))) then 
           ! diagonal terms set to 1.0, off-diagonal set to 0.0
-          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + kronecker(LM(i, q), LM(j, q)) * 1.0 * vector(LM(j, q))
-          !sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + kronecker(LM(i, q), LM(j, q)) * matrix(i, j) * vector(LM(j, q))
+          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
+                         kronecker(LM(i, q), LM(j, q)) * 1.0 * vector(LM(j, q))
         else
-          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + matrix(i, j) * vector(LM(j, q))
+          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
+                         matrix(i, j) * vector(LM(j, q))
         end if
       end do
     end do
@@ -249,7 +252,7 @@ subroutine phi_val(order, qp)
       dphi(2, :) = 1.0 - qp(:) * qp(:)
       dphi(3, :) = (2.0 * qp(:) + 1.0) / 2.0
     case default
-      write(*,*) "phi and dphi not initialized due to polynomial order not being supported."
+      write(*,*) "polynomial order not supported."
   end select
 end subroutine phi_val
 
