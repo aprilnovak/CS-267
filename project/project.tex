@@ -55,6 +55,10 @@
 \newcommand*\circled[1]{\tikz[baseline=(char.base)]{
             \node[shape=circle,draw,inner sep=2pt] (char) {#1};}}
 
+\newcommand{\beq}{\begin{equation}}
+\newcommand{\eeq}{\end{equation}}
+\newcommand{\beqa}{\begin{equation}\begin{aligned}}
+\newcommand{\eeqa}{\end{aligned}\end{equation}}
 
 \titleclass{\subsubsubsection}{straight}[\subsection]
 
@@ -95,9 +99,42 @@
 
 
 \begin{document}
-
 \maketitle
 
+\section{Introduction}
+
+This final project for CS-267 involves the serial creation and parallelization of a finite element solver to the heat equation, which in its simplest form describes the diffusion of temperature with a heat source:
+
+\beq
+\label{eq:eq}
+-k\frac{\partial^2 T}{\partial x^2}=\dot{q}
+\eeq
+
+where \(k\) is the thermal conductivity, \(T\) is the temperature, and \(\dot{q}\) is a volumetric heat source. This equation is kept very simple so that the goals of the project can focus entirely on parallelization algorithms, rather than more advanced numerical methods for solving convection-diffusion equations that would be encountered in a class such as MATH-228b (Numerical Solutions of Differential Equations). Due to the second derivative present in this equation, in 1-D, two boundary conditions are needed on both ends of the domain, and in 2-D, boundary conditions must be known on the entire perimeter. This presents the fundamental difficulty of parallelizing a numerical solution to this equation - if the domain is divided amongst different parallel processes or threads, then the equations cannot be solved unless guesses are made for the conditions on the boundaries that are created upon domain decomposition. Hence, any parallel solution will require an iterative procedure, where an initial guess for the interior boundary conditions are continually updated by comparing results obtained at processor-interfaces. Hence, this application is \textit{not} embarrassingly parallel, and if the number of iterations required to reach convergence is very large, then the parallel runtime can easily be longer than the serial runtime. Hence, clever parallel algorithms will be developed such that a net reduction in runtime and good strong and weak scaling can be obtained for this numerical solution.
+
+From the point of view of parallelization algorithms, the numerical method chosen can have a large impact on the success of strong and weak scaling results. For this project, the finite element method is chosen as the ODE solver because my research focuses on finite element methods applied to the field of Computational Fluid Dynamics (CFD). This assignment solves the heat equation in 1-D, and time permitting, will also pursue 2-D solutions. The remainder of this section will discuss the numerical method applied to the heat equation in 1-D, and some familiarity with numerical methods is assumed so that the brunt of this report can focus on parallelization rather than numerical methods. A similar approach to homework 2 is pursued here, in that effort is first spent on obtaining fast serial code, followed by the introduction of parallel algorithms to obtain good strong and weak scaling.
+
+The finite element method (FEM) is a weighted residual method, that for parabolic equations can be shown to be optimal in the energy norm (i.e. the FEM solution will outperform {\it all} other solutions when measured in this norm). By multiplying Eq. \eqref{eq:eq} by a test function \(\psi\) and integrating over all space, we obtain the weak form:
+
+\beqa
+-\int_{\Omega}k\frac{\partial^2 T}{\partial x^2}\psi(x)dx=&\int_{\Omega}\dot{q}\psi(x)dx\\
+\int_{\Omega}\frac{\partial T}{\partial x}k\frac{\partial\psi(x)}{\partial x}dx-\int_{\Gamma}k\frac{\partial T}{\partial x}\psi(x)\cdot\hat{n}dx=&\int_{\Omega}\dot{q}\psi(x)dx\\
+\eeqa
+
+where \(\Omega\) indicates the entire domain and \(\Gamma\) the boundary of the domain. Integration by parts has been applied in the second form above to transfer some differentiation from the solution variable \(T\) to the test function \(\psi\). This allows {\it weaker} differentiability requirements for our numerical representation of \(T\), since now the integral only requires that \(T\) be continuous (rather than differentiable as well). Now, an assumption about the form of the solution is made. We assume that the numerical solution \(T_h\) (subscript \(h\) refers to an element of width \(h\)) is a sum of coefficients multiplied by expansion functions \(\phi\):
+
+\beq
+T_h=\sum_{j=1}^{N}c_j\phi_j(x)
+\eeq
+
+where there are \(N\) of these expansion functions defined over the entire domain. Hence, the numerical method reduces to the problem of determining the expansion coefficietns \(c_j\) for a user-selected set of \(\phi_j(x)\). For parabolic equations, the Galerkin FEM specifies that \(\psi\) should come from the same space as \(T_h\). Hence, inserting these expansions into the weak form gives:
+
+\beqa
+\int_{\Omega}\frac{\partial \sum_{j=1}^Nc_j\phi_j(x)}{\partial x}k\frac{\partial\sum_{i=1}^Nb_i\phi_i(x)}{\partial x}dx-\int_{\Gamma}k\frac{\partial \sum_{j=1}^Nc_j\phi_j(x)}{\partial x}\sum_{i=1}^N\phi_i(x)\cdot\hat{n}dx=&\int_{\Omega}\dot{q}\sum_{i=1}^Nb_i\phi_i(x)dx\\
+\int_{\Omega}\frac{\partial \sum_{j=1}^Nc_j\phi_j(x)}{\partial x}k\frac{\partial\sum_{i=1}^Nb_i\phi_i(x)}{\partial x}dx-\int_{\Gamma}k\frac{\partial \sum_{j=1}^Nc_j\phi_j(x)}{\partial x}\sum_{i=1}^N\phi_i(x)\cdot\hat{n}dx=&\int_{\Omega}\dot{q}\sum_{i=1}^N\phi_i(x)dx\\
+\eeqa
+
+where the coefficients \(b_i\) can be cancelled from each term because they are arbitrary. 
 
 
 \end{document}
