@@ -59,24 +59,34 @@ call commandline(length, n_el, order, leftBC, rightBC) ! parse command line argu
 call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem variables
 call quadrature(order, n_qp, qp, wt)                   ! initialize quadrature rule
 
-! allocate memory for the shape functions - quadrature points
-! do not change throughout the simulation
 allocate(phi(order + 1, n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
-
-! allocate memory for the shape functions - quadrature points
-! do not change throughout the simulation
 allocate(dphi(order + 1, n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of dphi array failed."
-
-call phi_val(order, qp)                     ! initialize shape functions
-
-! form the elemental stiffness matrix and load vector
 allocate(kel(n_en, n_en), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of kel array failed."
 allocate(rel(n_en), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rel array failed."
+allocate(LM(n_en, n_el), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
+allocate(BCs(2), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of BCs array failed."
+allocate(rglob(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
+allocate(a(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of a array failed."
+allocate(aprev(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of aprev array failed."
+allocate(z(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of z array failed."
+allocate(zprev(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of zprev array failed."
+allocate(res(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of res array failed."
 
+call phi_val(order, qp)                     ! initialize shape functions
+
+! form the elemental stiffness matrix and load vector
 kel = 0.0
 rel = 0.0
 do q = 1, n_qp ! quadrature point is slowest varying
@@ -89,20 +99,12 @@ do q = 1, n_qp ! quadrature point is slowest varying
 end do
 
 ! form the location matrix
-allocate(LM(n_en, n_el), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
 call locationmatrix()
 
 ! determine the boundary condition nodes
-allocate(BCs(2), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of BCs array failed."
 BCs = (/1, n_nodes/)
 
 ! form the global load vector
-allocate(rglob(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
-
-! populate global matrices element by element so that
 ! elements in LM are accessed by column (fastest)
 rglob = 0.0
 do q = 1, n_el
@@ -111,34 +113,17 @@ do q = 1, n_el
   end do
 end do
 
-allocate(a(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of a array failed."
-allocate(aprev(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of aprev array failed."
-allocate(z(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of z array failed."
-allocate(zprev(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of zprev array failed."
-allocate(res(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-
 ! apply boundary conditions
 rglob(1) = leftBC                ! left BC value
 rglob(n_nodes) = rightBC         ! right BC value     
 
 call conjugategradient()
-
-
 print *, 'CG iterations: ', cnt
 
 ! write to an output file for plotting. If this file exists, it will be re-written.
 open(1, file='output.txt', iostat=AllocateStatus, status="replace")
 if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 write(1, *) a(:)
-
-! deallocate memory 
-
-
 
 call cpu_time(finish)
 print *, 'runtime: ', finish - start
@@ -218,7 +203,9 @@ function sparse_mult(matrix, LM, vector)
     do i = 1, n_en ! loop over all entries in kel
       do j = 1, n_en
         if (any(BCs == LM(i, q))) then 
-          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + kronecker(LM(i, q), LM(j, q)) * matrix(i, j) * vector(LM(j, q))
+          ! diagonal terms set to 1.0, off-diagonal set to 0.0
+          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + kronecker(LM(i, q), LM(j, q)) * 1.0 * vector(LM(j, q))
+          !sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + kronecker(LM(i, q), LM(j, q)) * matrix(i, j) * vector(LM(j, q))
         else
           sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + matrix(i, j) * vector(LM(j, q))
         end if
