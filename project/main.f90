@@ -56,6 +56,7 @@ real(rk), dimension(:),    allocatable :: z      ! CG update iterates
 real(rk), dimension(:),    allocatable :: zprev  ! CG update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
 real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
+real(rk), dimension(:),    allocatable :: kelaprev    ! matrix-vector product
 
 ! initialize the thermal conductivity and heat source
 k = 1.0
@@ -95,6 +96,8 @@ allocate(res(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of res array failed."
 allocate(kelzprev(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
+allocate(kelaprev(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of kelaprev array failed."
 
 call phi_val(order, qp)                     ! initialize shape functions
 
@@ -166,11 +169,29 @@ subroutine conjugategradient()
   
   cnt = 0
   do while (convergence > tol)
-    aprev  = a
-    kelzprev = sparse_mult(kel, LM, zprev)
-    res    = rglob - sparse_mult(kel, LM, aprev)
-    theta  = - dotprod(res, kelzprev) / &
-               dotprod(zprev, kelzprev)
+    aprev    = a
+    kelzprev = 0.0
+    kelaprev = 0.0
+    ! solve for the matrices
+    do q = 1, n_el ! loop over the elements
+      do i = 1, n_en ! loop over all entries in kel
+        do j = 1, n_en
+          if (any(BCs == LM(i, q))) then 
+            ! diagonal terms set to 1.0, off-diagonal set to 0.0
+            kelzprev(LM(i, q)) = kelzprev(LM(i, q)) + &
+                           kronecker(LM(i, q), LM(j, q)) * zprev(LM(j, q))
+            kelaprev(LM(i, q)) = kelaprev(LM(i, q)) + &
+                           kronecker(LM(i, q), LM(j, q)) * aprev(LM(j, q))
+          else
+            kelzprev(LM(i, q)) = kelzprev(LM(i, q)) + kel(i, j) * zprev(LM(j, q))
+            kelaprev(LM(i, q)) = kelaprev(LM(i, q)) + kel(i, j) * aprev(LM(j, q))
+          end if
+        end do
+      end do
+    end do
+    
+    res    = rglob - kelaprev
+    theta  = - dotprod(res, kelzprev) / dotprod(zprev, kelzprev)
     z      = res + theta * zprev
     lambda = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
     a      = aprev + lambda * z
@@ -180,7 +201,8 @@ subroutine conjugategradient()
     do i = 1, n_nodes
       convergence = convergence + abs(a(i) - aprev(i))
     end do
-    cnt = cnt + 1
+    
+  cnt = cnt + 1
   end do
 end subroutine conjugategradient
 
@@ -203,6 +225,7 @@ real function dotprod(vec1, vec2)
     dotprod = dotprod + vec1(i) * vec2(i)
   end do
 end function dotprod
+
 
 
 function sparse_mult(matrix, LM, vector)
