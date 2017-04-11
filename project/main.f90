@@ -364,7 +364,7 @@ subroutine initialize(h, x, n_en, n_el, order, n_nodes)
   ! loop is vectorized, estimated speedup: 3.47
   ! changed from two type converts to only one
   do i = 1, size(x)
-    x(i) = real((i - 1) / (n_en - 1)) * h
+    x(i) = real(i - 1) * h / real(n_en - 1)
   end do
 end subroutine initialize
 
