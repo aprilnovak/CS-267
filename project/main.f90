@@ -51,7 +51,6 @@ real(rk), dimension(:, :), allocatable :: phi    ! shape functions
 real(rk), dimension(:, :), allocatable :: dphi   ! shape function derivatives
 real(rk), dimension(:),    allocatable :: rglob  ! global load vector
 real(rk), dimension(:),    allocatable :: a      ! CG solution iterates
-real(rk), dimension(:),    allocatable :: aprev  ! CG solution iterates
 real(rk), dimension(:),    allocatable :: z      ! CG update iterates
 real(rk), dimension(:),    allocatable :: zprev  ! CG update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
@@ -66,7 +65,6 @@ tol = 0.001
 call cpu_time(start)
 
 call commandline(length, n_el, order, leftBC, rightBC) ! parse command line args
-
 call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem vars
 call quadrature(order, n_qp, qp, wt)                   ! initialize quadrature
 
@@ -86,8 +84,6 @@ allocate(rglob(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
 allocate(a(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of a array failed."
-allocate(aprev(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of aprev array failed."
 allocate(z(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of z array failed."
 allocate(zprev(n_nodes), stat = AllocateStatus)
@@ -150,56 +146,37 @@ open(2, file='timing.txt', status='old', action='write', &
   form='formatted', position='append')
 write(2, *), n_el, finish - start, endCG - startCG, cnt
 
-deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, aprev, z, zprev, res, LM)
+deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, z, zprev, res, LM)
 
 CONTAINS ! define all internal procedures
 
 subroutine conjugategradient()
   ! conjugate gradient solver for solving kglob * a = rglob
-  aprev       = 1.0
-  res         = rglob - sparse_mult(kel, LM, aprev)
+  a           = 1.0
+  res         = rglob - sparse_mult(kel, LM, a)
   zprev       = res
   lambda      = dotprod(zprev, res)/dotprod(zprev, sparse_mult(kel, LM, zprev))
-  a           = aprev + lambda * zprev
+  a           = a + lambda * zprev
   convergence = 0.0
   
   do i = 1, n_nodes
-    convergence = convergence + abs(a(i) - aprev(i))
+    convergence = convergence + abs(lambda * zprev(i))
   end do
   
   cnt = 0
   do while (convergence > tol)
-    aprev    = a
-    kelzprev = 0.0
-    kelaprev = 0.0
-    ! solve for the matrices
-    do q = 1, n_el ! loop over the elements
-      do i = 1, n_en ! loop over all entries in kel
-        do j = 1, n_en
-          if (any(BCs == LM(i, q))) then 
-            ! diagonal terms set to 1.0, off-diagonal set to 0.0
-            kelzprev(LM(i, q)) = kelzprev(LM(i, q)) + &
-                           kronecker(LM(i, q), LM(j, q)) * zprev(LM(j, q))
-            kelaprev(LM(i, q)) = kelaprev(LM(i, q)) + &
-                           kronecker(LM(i, q), LM(j, q)) * aprev(LM(j, q))
-          else
-            kelzprev(LM(i, q)) = kelzprev(LM(i, q)) + kel(i, j) * zprev(LM(j, q))
-            kelaprev(LM(i, q)) = kelaprev(LM(i, q)) + kel(i, j) * aprev(LM(j, q))
-          end if
-        end do
-      end do
-    end do
-    
-    res    = rglob - kelaprev
+    !aprev    = a
+    kelzprev = sparse_mult(kel, LM, zprev) 
+    res    = rglob - sparse_mult(kel, LM, a)
     theta  = - dotprod(res, kelzprev) / dotprod(zprev, kelzprev)
     z      = res + theta * zprev
     lambda = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
-    a      = aprev + lambda * z
+    a      = a + lambda * z
     zprev  = z
   
     convergence = 0.0
     do i = 1, n_nodes
-      convergence = convergence + abs(a(i) - aprev(i))
+      convergence = convergence + abs(lambda * z(i))
     end do
     
   cnt = cnt + 1
