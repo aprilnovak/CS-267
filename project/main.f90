@@ -40,7 +40,6 @@ real(rk) :: endMem             ! end, memory allocation
 real(rk) :: startCG            ! start, CG
 real(rk) :: endCG              ! end, CG
 
-
 integer,  dimension(:, :), allocatable :: LM     ! location matrix
 integer,  dimension(:),    allocatable :: BCs    ! boundary condition nodes
 real(rk), dimension(:),    allocatable :: qp     ! quadrature points
@@ -56,6 +55,7 @@ real(rk), dimension(:),    allocatable :: aprev  ! CG solution iterates
 real(rk), dimension(:),    allocatable :: z      ! CG update iterates
 real(rk), dimension(:),    allocatable :: zprev  ! CG update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
+real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
 
 ! initialize the thermal conductivity and heat source
 k = 1.0
@@ -64,18 +64,11 @@ tol = 0.001
 
 call cpu_time(start)
 
-call cpu_time(startCL)
 call commandline(length, n_el, order, leftBC, rightBC) ! parse command line args
-call cpu_time(endCL)
-print *, 'command line parse: ', endCL - startCL
 
-call cpu_time(startInit)
 call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem vars
 call quadrature(order, n_qp, qp, wt)                   ! initialize quadrature
-call cpu_time(endInit)
-print *, 'problem initialization: ', endInit - startInit
 
-call cpu_time(startMem)
 allocate(phi(order + 1, n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
 allocate(dphi(order + 1, n_qp), stat = AllocateStatus)
@@ -100,16 +93,15 @@ allocate(zprev(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of zprev array failed."
 allocate(res(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-call cpu_time(endMem)
-print *, 'memory allocation: ', endMem - startMem
-
+allocate(kelzprev(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
 
 call phi_val(order, qp)                     ! initialize shape functions
 
 ! form the elemental stiffness matrix and load vector
 kel = 0.0
 rel = 0.0
-do q = 1, n_qp ! quadrature point is slowest varying
+do q = 1, n_qp
   do i = 1, n_en
     rel(i) = rel(i) + wt(q) * source * phi(i, q) * h *h / 2.0
     do j = 1, n_en
@@ -175,9 +167,10 @@ subroutine conjugategradient()
   cnt = 0
   do while (convergence > tol)
     aprev  = a
+    kelzprev = sparse_mult(kel, LM, zprev)
     res    = rglob - sparse_mult(kel, LM, aprev)
-    theta  = - dotprod(res, sparse_mult(kel, LM, zprev)) / &
-               dotprod(zprev, sparse_mult(kel, LM, zprev))
+    theta  = - dotprod(res, kelzprev) / &
+               dotprod(zprev, kelzprev)
     z      = res + theta * zprev
     lambda = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
     a      = aprev + lambda * z
@@ -230,7 +223,7 @@ function sparse_mult(matrix, LM, vector)
         if (any(BCs == LM(i, q))) then 
           ! diagonal terms set to 1.0, off-diagonal set to 0.0
           sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
-                         kronecker(LM(i, q), LM(j, q)) * 1.0 * vector(LM(j, q))
+                         kronecker(LM(i, q), LM(j, q)) * vector(LM(j, q))
         else
           sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
                          matrix(i, j) * vector(LM(j, q))
