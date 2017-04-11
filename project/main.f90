@@ -1,7 +1,4 @@
 ! program to solve the heat equation (Dirichlet boundary conditions only)
-
-! the number of CG iterations scales as N (but is about 4*N)
-
 PROGRAM main
 
 implicit none
@@ -57,6 +54,8 @@ real(rk), dimension(:),    allocatable :: res    ! solution residual
 real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
 real(rk), dimension(:),    allocatable :: kelaprev    ! matrix-vector product
 
+ 
+
 ! initialize the thermal conductivity and heat source
 k = 1.0
 source = 1.0
@@ -66,7 +65,13 @@ call cpu_time(start)
 
 call commandline(length, n_el, order, leftBC, rightBC) ! parse command line args
 call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem vars
-call quadrature(order, n_qp, qp, wt)                   ! initialize quadrature
+
+allocate(qp(n_qp), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of qp array failed."
+allocate(wt(n_qp), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of wt array failed."
+
+call quadrature(order, n_qp)                   ! initialize quadrature
 
 allocate(phi(order + 1, n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
@@ -274,21 +279,15 @@ subroutine phi_val(order, qp)
 end subroutine phi_val
 
 
-subroutine quadrature(order, n_qp, qp, wt)
+subroutine quadrature(order, n_qp)
   implicit none
 
   integer, intent(in)  :: order
   integer, intent(out) :: n_qp
-  real (rk), dimension(:), allocatable :: qp
-  real (rk), dimension(:), allocatable :: wt
   
   n_qp = 2
   !n_qp = ceiling((real(order) + 1.0) / 2.0)
 
-  allocate(qp(n_qp), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of qp array failed."
-  allocate(wt(n_qp), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of wt array failed."
   
   select case(n_qp)
     case(1)
@@ -362,8 +361,10 @@ subroutine initialize(h, x, n_en, n_el, order, n_nodes)
   allocate(x(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
 
+  ! loop is vectorized, estimated speedup: 3.47
+  ! changed from two type converts to only one
   do i = 1, size(x)
-    x(i) = real((i - 1)) * h / real((n_en - 1))
+    x(i) = real((i - 1) / (n_en - 1)) * h
   end do
 end subroutine initialize
 
