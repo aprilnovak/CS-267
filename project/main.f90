@@ -153,7 +153,7 @@ print *, 'runtime: ', finish - start
 
 open(2, file='timing.txt', status='old', action='write', &
   form='formatted', position='append')
-write(2, "(I10, F12.6, F12.6)") n_el, finish - start, endCG - startCG
+write(2, *), n_el, finish - start, endCG - startCG, cnt
 
 deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, aprev, z, zprev, res, LM)
 

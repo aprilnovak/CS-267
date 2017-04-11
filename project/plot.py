@@ -17,6 +17,7 @@ for index, filename in enumerate(filenames):
 		size = []
 		CG = []
 		total = []
+		CGiterations = []
 		description = descriptions[index]
 		my_dict[description] = {}
 		for line in f:
@@ -25,12 +26,13 @@ for index, filename in enumerate(filenames):
 			size.append(float(data[0]))
 			total.append(float(data[1]))
 			CG.append(float(data[2]))
-		my_dict[description] = {'size':size, 'CG':CG, 'total':total}
+			CGiterations.append(float(data[2]) / float(data[3]))
+		my_dict[description] = {'size':size, 'CG':CG, 'total':total, 'CGiterations':CGiterations}
 
 for description in descriptions:
-    plt.plot(my_dict[description]['size'], my_dict[description]['total'], label=description)
+    plt.plot(my_dict[description]['size'], my_dict[description]['CGiterations'], label=description)
     #plt.plot(my_dict[description]['size'], my_dict[description]['CG'], label='CG solver')
-    plt.ylabel('Runtime (s)')
+    plt.ylabel('Runtime per CG iteration (s)')
     plt.xlabel('Size')
 plt.legend()
 plt.savefig(description + '.png')
