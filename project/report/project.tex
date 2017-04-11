@@ -198,7 +198,7 @@ where the nodes have been numbered counterclockwise.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.8\textwidth]{figures/FEmesh.pdf}
+\includegraphics[width=0.8\textwidth]{../figures/FEmesh.pdf}
 \caption{Global node numbering in a simple FE mesh. Source:\newline {\tt http://opensees.berkeley.edu/wiki/index.php/}\newline{\tt Simply\_supported\_beam\_modeled\_with\_two\_dimensional\_solid\_elements}}
 \label{fig:FEmesh}
 \end{figure}
@@ -556,13 +556,26 @@ call conjugategradient()
 deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, aprev, z, zprev, res, LM)
 \end{lstlisting}
 
-The remainder of this section will discuss changes made to this serial algorithm just described in order to obtain better serial performance. With no compiler flags, the runtime of this serial code on 2.5 GHz Intel Core i5 is shown below for 1000 to 10000 finite elements. By measuring the runtime of the {\tt conjugategradient} subroutine, it can be seen that the total runtime is almost entirely due to the conjugate gradient solution. Hence, most effort will be spent optimizing this function.
+The remainder of this section will discuss changes made to this serial algorithm just described in order to obtain better serial performance. With no compiler flags, the runtime of this serial code on 2.5 GHz Intel Core i5 is shown below for 1000 to 10000 finite elements. By measuring the runtime of the {\tt conjugategradient} subroutine, it can be seen that the total runtime is almost entirely due to the conjugate gradient solution. Hence, most effort will be spent optimizing this function. The number of CG iterations increases with the number of elements - without preconditioning, this cannot be changed and is a feature of the numerical method. However, what {\it can} be improved through code adjustments is the runtime per CG iteration, shown in Fig. \ref{fig:runtime_per_CG} below. As can be seen, the runtime for each CG iteration is not constant, and this is due to the fact that the larger the number of elements, the larger the matrix multiplications and vector dot products inherent to the iterative solver. 
 
-% naive-serial.txt: original serial code version, with no vectorization or other optimizations made in the CG solver
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\linewidth]{../figures/O3-flag-runtime-per-CG.png}
+\caption{Runtime per CG iteration as a function of the number of elements with the naive serial code (no compiler flags) and the same code compiled with the {\tt -O3} option. The same number of iterations are performed for each number of discrete elements.}
+\end{figure}
 
 \subsection{Vectorization}
 
-Single Instruction, Multiple Data (SIMD) is the process by which a single instruction is used to perform an operation on multiple pieces of data at the same time. When instructed with the appropriate vectorization flags, the compiler will try to find SIMD parallelism and use them as much as possible. Because a register only consists of a limited number of bytes, the degree of parallelism achievable is dependent on the data type of the variable that is being operated on. If a register contains 16 bytes, then because doubles are 8 bytes, while floats are 4 bytes, you can only achieve 2x parallelism with doubles, but 4x parallelism with floats. Using the GNU compiler, automatic vectorization can be attempted using the {\tt -ftree-vectorize} flag. 
+Single Instruction, Multiple Data (SIMD) is the process by which a single instruction is used to perform an operation on multiple pieces of data at the same time. When instructed with the appropriate vectorization flags, the compiler will try to find SIMD parallelism and use them as much as possible. Because a register only consists of a limited number of bytes, the degree of parallelism achievable is dependent on the data type of the variable that is being operated on. If a register contains 16 bytes, then because doubles are 8 bytes, while floats are 4 bytes, you can only achieve 2x parallelism with doubles, but 4x parallelism with floats. Using the GNU compiler, automatic vectorization can be attempted using the {\tt -O3} flag. Using this flag, as opposed to zero compiler flags, yields a dramatic performance improvement. Fig. \ref{fig:O3-flag} shows the runtime as a function of the number of elements with the naive serial code (no compiler flags) and the same code compiled with the {\tt -O3} option.
+
+% naive-serial.txt: original serial code version, with no vectorization or other optimizations made in the CG solver
+% O3-dotprod.txt: original code compiled with -O3
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\linewidth]{../figures/O3-flag.png}
+\caption{Runtime as a function of the number of elements with the naive serial code (no compiler flags) and the same code compiled with the {\tt -O3} option.}
+\end{figure}
 
 \section{Parallel Implementation}
 This section discusses parallelization of the serial code developed in the previous section. In general, there are two very different parallelization strategies here - the first involves domain decomposition amongst parallel threads, where each parallel thread then runs a complete FEM solution, with iteration between threads until all threads agree on the values of the solution at the boundaries between the spatial domain allocated to each process. Alternatively, a single FEM problem can be run (with no need to iterate boundary conditions because the domain is not decomposed), and the work for the single FEM solve distributed amongst parallel instances.
