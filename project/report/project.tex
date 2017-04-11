@@ -556,19 +556,10 @@ call conjugategradient()
 deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, aprev, z, zprev, res, LM)
 \end{lstlisting}
 
-The remainder of this section will discuss changes made to this serial algorithm just described in order to obtain better serial performance. With no compiler flags, the runtime of this serial code on 2.5 GHz Intel Core i5 is shown below for 1000 to 10000 finite elements. By measuring the runtime of the {\tt conjugategradient} subroutine, it can be seen that the total runtime is almost entirely due to the conjugate gradient solution. Hence, most effort will be spent optimizing this function. The number of CG iterations increases with the number of elements - without preconditioning, this cannot be changed and is a feature of the numerical method. However, what {\it can} be improved through code adjustments is the runtime per CG iteration, shown in Fig. \ref{fig:runtime_per_CG} below. As can be seen, the runtime for each CG iteration is not constant, and this is due to the fact that the larger the number of elements, the larger the matrix multiplications and vector dot products inherent to the iterative solver. A very simple change that can be done is to use a better starting guess for the iterative solution. By changing the initial guess from unity to a straight line between the left and right Dirichlet boundary conditions, the runtime per CG iteration drops by about a factor of 10 due to the factor of 10 lower iterations required due to being closer to the true numerical solution.
-
-% better-initial-guess.txt : sets a better guess for a
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.6\linewidth]{../figures/O3-flag-runtime-per-CG.png}
-\caption{Runtime per CG iteration as a function of the number of elements with the naive serial code (no compiler flags) and the same code compiled with the {\tt -O3} option. The same number of iterations are performed for each number of discrete elements.}
-\end{figure}
-
-A challenge associated with an iterative solution scheme is that it is not easily parallelizable - each iteration of the loop depends on previous solution iterates, and while the matrix multiplication and dot products can be easily parallelized, some quantities, such as \(\theta\) and \(\lambda\), require the aggregate matrix-vector products and vector-vector products, and hence the entire iterative solution cannot be performed completely independently for sections of the numerical solution.
+The remainder of this section will discuss changes made to this serial algorithm just described in order to obtain better serial performance. With no compiler flags, the runtime of this serial code on 2.5 GHz Intel Core i5 is shown below for 1000 to 10000 finite elements. By measuring the runtime of the {\tt conjugategradient} subroutine, it can be seen that the total runtime is almost entirely due to the conjugate gradient solution. Hence, most effort will be spent optimizing this function. The number of CG iterations increases with the number of elements - without preconditioning, this cannot be changed and is a feature of the numerical method. However, what {\it can} be improved through code adjustments is the runtime per CG iteration. A very simple change that can be done is to use a better starting guess for the iterative solution. By changing the initial guess from unity to a straight line between the left and right Dirichlet boundary conditions, the runtime per CG iteration drops by about a factor of 10 due to the factor of 10 lower iterations required due to being closer to the true numerical solution. A challenge associated with an iterative solution scheme is that it is not easily parallelizable - each iteration of the loop depends on previous solution iterates, and while the matrix multiplication and dot products can be easily parallelized, some quantities, such as \(\theta\) and \(\lambda\), require the aggregate matrix-vector products and vector-vector products, and hence the entire iterative solution cannot be performed completely independently for sections of the numerical solution.
 
 \subsection{Reducing FLOPs}
-The first, and perhaps most obvious, way to improve performance is to reduce unnecessary computation. This can be done in the {\tt conjugategradient} function by not performing {\tt sparse_mult} 
+The first, and perhaps most obvious, way to improve performance is to reduce unnecessary computation. This can be done in the {\tt conjugategradient} function by not performing {\tt sparse\_mult} 
 
 \subsection{Vectorization}
 
@@ -576,11 +567,12 @@ Single Instruction, Multiple Data (SIMD) is the process by which a single instru
 
 % naive-serial.txt: original serial code version, with no vectorization or other optimizations made in the CG solver
 % O3-dotprod.txt: original code compiled with -O3
+% better-initial-guess.txt: original code, compiled with -O3, but a linear starting guess
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.6\linewidth]{../figures/O3-flag.png}
-\caption{Runtime as a function of the number of elements with the naive serial code (no compiler flags) and the same code compiled with the {\tt -O3} option.}
+\caption{Runtime as a function of the number of elements with the naive serial code (no compiler flags) and the same code compiled with the {\tt -O3} option, both with the initial naive iterative solution guess of \(a=1.0\) and with a linear interpolation.}
 \end{figure}
 
 \section{Parallel Implementation}
