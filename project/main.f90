@@ -160,11 +160,11 @@ subroutine conjugategradient()
   convergence = 0.0
   
   do i = 1, n_nodes
-    convergence = convergence + abs(lambda * zprev(i))
+    convergence = convergence + abs(zprev(i))
   end do
   
   cnt = 0
-  do while (convergence > tol)
+  do while (lambda * convergence > tol)
     !aprev    = a
     kelzprev = sparse_mult(kel, LM, zprev) 
     res    = rglob - sparse_mult(kel, LM, a)
@@ -176,7 +176,7 @@ subroutine conjugategradient()
   
     convergence = 0.0
     do i = 1, n_nodes
-      convergence = convergence + abs(lambda * z(i))
+      convergence = convergence + abs(z(i))
     end do
     
   cnt = cnt + 1
