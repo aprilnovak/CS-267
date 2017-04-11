@@ -39,6 +39,7 @@ real(rk) :: startMem           ! start, memory allocation
 real(rk) :: endMem             ! end, memory allocation
 real(rk) :: startCG            ! start, CG
 real(rk) :: endCG              ! end, CG
+real(rk) :: m                  ! slope of line
 
 integer,  dimension(:, :), allocatable :: LM     ! location matrix
 integer,  dimension(:),    allocatable :: BCs    ! boundary condition nodes
@@ -52,7 +53,6 @@ real(rk), dimension(:, :), allocatable :: dphi   ! shape function derivatives
 real(rk), dimension(:),    allocatable :: rglob  ! global load vector
 real(rk), dimension(:),    allocatable :: a      ! CG solution iterates
 real(rk), dimension(:),    allocatable :: z      ! CG update iterates
-real(rk), dimension(:),    allocatable :: zprev  ! CG update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
 real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
 real(rk), dimension(:),    allocatable :: kelaprev    ! matrix-vector product
@@ -86,8 +86,6 @@ allocate(a(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of a array failed."
 allocate(z(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of z array failed."
-allocate(zprev(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of zprev array failed."
 allocate(res(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of res array failed."
 allocate(kelzprev(n_nodes), stat = AllocateStatus)
@@ -146,13 +144,18 @@ open(2, file='timing.txt', status='old', action='write', &
   form='formatted', position='append')
 write(2, *), n_el, finish - start, endCG - startCG, cnt
 
-deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, z, zprev, res, LM)
+deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, z, res, LM)
 
 CONTAINS ! define all internal procedures
 
 subroutine conjugategradient()
-  ! conjugate gradient solver for solving kglob * a = rglob
-  a           = 1.0
+  ! initial guess is a straight line between the two endpoints
+  m = (rightBC - leftBC) / length
+  do i = 1, n_nodes
+    a(i) = m * x(i)
+  end do
+
+  a           = a + leftBC
   res         = rglob - sparse_mult(kel, LM, a)
   z           = res
   lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
@@ -165,15 +168,12 @@ subroutine conjugategradient()
   
   cnt = 0
   do while (lambda * convergence > tol)
-    !aprev    = a
-    zprev = z
-    kelzprev = sparse_mult(kel, LM, zprev) 
-    res    = rglob - sparse_mult(kel, LM, a)
-    theta  = - dotprod(res, kelzprev) / dotprod(zprev, kelzprev)
-    z      = res + theta * zprev
-    lambda = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
-    a      = a + lambda * z
-    zprev  = z
+    kelzprev = sparse_mult(kel, LM, z) 
+    res      = rglob - sparse_mult(kel, LM, a)
+    theta    = dotprod(res, kelzprev) / dotprod(z, kelzprev)
+    z        = res - theta * z
+    lambda   = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
+    a        = a + lambda * z
   
     convergence = 0.0
     do i = 1, n_nodes

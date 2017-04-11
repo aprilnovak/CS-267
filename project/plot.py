@@ -7,7 +7,7 @@ num_files = (len(sys.argv) - 1)/2
 
 filenames = []
 descriptions = []
-for i in range(0, num_files + 1, 2):
+for i in range(0, 2*num_files, 2):
 	filenames.append(sys.argv[i + 1])
 	descriptions.append(sys.argv[i + 2])
 
