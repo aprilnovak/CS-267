@@ -20,16 +20,16 @@ for index, filename in enumerate(filenames):
 		description = descriptions[index]
 		my_dict[description] = {}
 		for line in f:
-			data = line.split(' ')
+			data = line.split()
 			print(data)
-			size.append(float(data[6]))
-			CG.append(float(data[10]))
-			total.append(float(data[14].strip('\n')))
+			size.append(float(data[0]))
+			total.append(float(data[1]))
+			CG.append(float(data[2]))
 		my_dict[description] = {'size':size, 'CG':CG, 'total':total}
 
 for description in descriptions:
-    plt.plot(my_dict[description]['size'], my_dict[description]['total'], label='total')
-    plt.plot(my_dict[description]['size'], my_dict[description]['CG'], label='CG solver')
+    plt.plot(my_dict[description]['size'], my_dict[description]['total'], label=description)
+    #plt.plot(my_dict[description]['size'], my_dict[description]['CG'], label='CG solver')
     plt.ylabel('Runtime (s)')
     plt.xlabel('Size')
 plt.legend()
