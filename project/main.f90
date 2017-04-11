@@ -225,16 +225,18 @@ function sparse_mult(matrix, LM, vector)
    
   do q = 1, n_el ! loop over the elements
     do i = 1, n_en ! loop over all entries in kel
-      do j = 1, n_en
-        if (any(BCs == LM(i, q))) then 
+      if (any(BCs == LM(i, q))) then 
+        do j = 1, n_en
           ! diagonal terms set to 1.0, off-diagonal set to 0.0
           sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
-                         kronecker(LM(i, q), LM(j, q)) * vector(LM(j, q))
-        else
+                       kronecker(LM(i, q), LM(j, q)) * vector(LM(j, q))
+        end do
+      else
+        do j = 1, n_en
           sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
                          matrix(i, j) * vector(LM(j, q))
-        end if
-      end do
+        end do
+      end if
     end do
   end do
 end function sparse_mult
