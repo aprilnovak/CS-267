@@ -52,7 +52,6 @@ real(rk), dimension(:),    allocatable :: a      ! CG solution iterates
 real(rk), dimension(:),    allocatable :: z      ! CG update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
 real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
-real(rk), dimension(:),    allocatable :: kelaprev    ! matrix-vector product
 
  
 
@@ -95,8 +94,6 @@ allocate(res(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of res array failed."
 allocate(kelzprev(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
-allocate(kelaprev(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of kelaprev array failed."
 
 call phi_val(order, qp)                     ! initialize shape functions
 
@@ -173,11 +170,14 @@ subroutine conjugategradient()
   
   cnt = 0
   do while (lambda * convergence > tol)
-    kelzprev = sparse_mult(kel, LM, z) 
+    !kelzprev = sparse_mult(kel, LM, z) 
+
     res      = rglob - sparse_mult(kel, LM, a)
-    theta    = dotprod(res, kelzprev) / dotprod(z, kelzprev)
+    theta    = sparse_mult_dot(kel, LM, z, res) / sparse_mult_dot(kel, LM, z, z)
+    !theta    = dotprod(res, kelzprev) / dotprod(z, kelzprev)
     z        = res - theta * z
-    lambda   = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
+    lambda   = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z)
+    !lambda   = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
     a        = a + lambda * z
   
     convergence = 0.0
@@ -209,6 +209,32 @@ real function dotprod(vec1, vec2)
   end do
 end function dotprod
 
+function sparse_mult_dot(matrix, LM, vector, vecdot)
+  implicit none
+  real(rk) :: matrix(:, :) ! elementary matrix (assumed-shape array)
+  real(rk) :: vector(:)    ! full vector (assumed-shape array)
+  real(rk) :: vecdot(:)
+  integer  :: LM(:, :)     ! location matrix
+ 
+  ! return value of function
+  real(rk) :: sparse_mult_dot
+  integer  :: i, j, q ! looping variables
+   
+  sparse_mult_dot = 0.0
+  do q = 1, n_el ! loop over the elements
+    do i = 1, n_en ! loop over all entries in kel
+      if (any(BCs == LM(i, q))) then 
+        do j = 1, n_en
+          sparse_mult_dot = sparse_mult_dot + vecdot(LM(i, q)) * kronecker(LM(i, q), LM(j, q)) * vector(LM(j, q))
+        end do
+      else
+        do j = 1, n_en
+          sparse_mult_dot = sparse_mult_dot + vecdot(LM(i, q)) * matrix(i, j) * vector(LM(j, q))
+        end do
+      end if
+    end do
+  end do
+end function sparse_mult_dot
 
 
 function sparse_mult(matrix, LM, vector)
@@ -233,8 +259,7 @@ function sparse_mult(matrix, LM, vector)
         end do
       else
         do j = 1, n_en
-          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
-                         matrix(i, j) * vector(LM(j, q))
+          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + matrix(i, j) * vector(LM(j, q))
         end do
       end if
     end do
