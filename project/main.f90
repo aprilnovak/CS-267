@@ -154,18 +154,19 @@ subroutine conjugategradient()
   ! conjugate gradient solver for solving kglob * a = rglob
   a           = 1.0
   res         = rglob - sparse_mult(kel, LM, a)
-  zprev       = res
-  lambda      = dotprod(zprev, res)/dotprod(zprev, sparse_mult(kel, LM, zprev))
-  a           = a + lambda * zprev
+  z           = res
+  lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
+  a           = a + lambda * z
   convergence = 0.0
   
   do i = 1, n_nodes
-    convergence = convergence + abs(zprev(i))
+    convergence = convergence + abs(z(i))
   end do
   
   cnt = 0
   do while (lambda * convergence > tol)
     !aprev    = a
+    zprev = z
     kelzprev = sparse_mult(kel, LM, zprev) 
     res    = rglob - sparse_mult(kel, LM, a)
     theta  = - dotprod(res, kelzprev) / dotprod(zprev, kelzprev)
