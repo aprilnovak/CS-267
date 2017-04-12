@@ -60,8 +60,9 @@ real(rk), dimension(:),    allocatable :: res    ! solution residual
 real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
 
 call cpu_time(start)
+order = 1 ! only works for linear elements
 
-call commandline(n_el, order, leftBC, rightBC)    ! parse command line args
+call commandline(n_el, leftBC, rightBC)    ! parse command line args
 ! n_el: total number of elements in domain
 ! leftBC, rightBC: boundary conditions on the physical domain
 
@@ -85,8 +86,6 @@ if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
 
 ! initially assign each processor to have the maximum number of elements
 elems = maxperproc
-
-! number of extra elements that we have allocated
 j = maxperproc * numprocs - n_el
 
 i = 1
@@ -105,11 +104,6 @@ do j = 1, numprocs
   numnodes(j) = elems(j) * n_en - (elems(j) - 1)
 end do
 
-! n_el = elems(rank)
-! n_nodes = numnodes(rank)
-print *, elems
-print *, cumelems
-print *, numnodes
 
 ! assign the global node numbers that correspond to the edges of each domain
 do i = 1, numprocs
@@ -121,7 +115,12 @@ do i = 1, numprocs
 end do
 
 ! BCs = edges(:, rank)
-print*, edges
+! n_el = elems(rank)
+! n_nodes = numnodes(rank)
+print *, 'elements per domain: ', elems
+print *, 'starting element of domain: ', cumelems
+print *, 'nodes per domain: ', numnodes
+print *, 'nodes on edge of domain: ', edges
 
 allocate(phi(order + 1, n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
@@ -353,6 +352,7 @@ subroutine phi_val(order, qp)
   integer,  intent(in)  :: order
   real(rk), intent(in)  :: qp(:)
 
+
   select case(order)
     case(1)
       phi(1, :)  = (1.0 - qp(:)) / 2.0
@@ -402,10 +402,9 @@ subroutine quadrature(order, n_qp)
 end subroutine quadrature
 
 
-subroutine commandline(n_el, order, leftBC, rightBC)
+subroutine commandline(n_el, leftBC, rightBC)
   implicit none
   integer, intent(out)  :: n_el
-  integer, intent(out)  :: order
   real(rk), intent(out) :: leftBC
   real(rk), intent(out) :: rightBC
  
@@ -424,10 +423,8 @@ subroutine commandline(n_el, order, leftBC, rightBC)
       case(1)
         read(args, *) n_el
       case(2)
-        read(args, *) order
-      case(3)
         read(args, *) leftBC
-      case(4)
+      case(3)
         read(args, *) rightBC
       case default
         write(*,*) "Too many command line parameters."
