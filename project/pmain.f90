@@ -63,7 +63,7 @@ real(rk), dimension(:),    allocatable :: res    ! solution residual
 real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
 ! other problem parameters
 k = 1.0
-source = 1.0
+source = 10.0
 tol = 0.0001
   
 
@@ -240,15 +240,15 @@ subroutine conjugategradient()
   m = (BCvals(2, rank) - BCvals(1, rank)) / (xel(n_nodes) - xel(1))
   
   a           = m * (xel - xel(1)) + BCvals(1, rank)
-  print *, 'initial CG guess: ', a
-  print *, 'rglobal: ', rglob
+  !print *, 'initial CG guess: ', a
+  !print *, 'rglobal: ', rglob
 
   res         = rglob - sparse_mult(kel, LM, a)
-  print *, 'first residual: ', res
+  !print *, 'first residual: ', res
   z           = res
   lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
   a           = a + lambda * z
-  print *, 'first update: ', a
+  !print *, 'first update: ', a
   res         = rglob - sparse_mult(kel, LM, a) ! second residual
   convergence = 0.0
  
@@ -259,13 +259,13 @@ subroutine conjugategradient()
   end do
   
   cnt = 0
-  do while (lambda * convergence > tol)
+  do while (convergence > tol)
     !kelzprev = sparse_mult(kel, LM, z) 
 
     res      = rglob - sparse_mult(kel, LM, a)
-    print *, 'second residual: ', res
+    !print *, 'second residual: ', res
     theta    = sparse_mult_dot(kel, LM, z, res) / sparse_mult_dot(kel, LM, z, z)
-    print *, 'theta: ', theta
+    !print *, 'theta: ', theta
 
     !theta    = dotprod(res, kelzprev) / dotprod(z, kelzprev)
     z        = res - theta * z
@@ -273,7 +273,7 @@ subroutine conjugategradient()
     !lambda   = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
     a        = a + lambda * z
  
-    print *, 'lambda: ', lambda
+    !print *, 'lambda: ', lambda
 
 
 ! change to breaking from loop by evaluating the residual
@@ -285,7 +285,7 @@ subroutine conjugategradient()
     
   cnt = cnt + 1
   end do
-  print *, 'final update: ', a 
+  !print *, 'final update: ', a 
 end subroutine conjugategradient
 
 
