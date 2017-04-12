@@ -40,6 +40,7 @@ real(rk) :: m                  ! slope of line
 integer  :: numprocs           ! number of processors
 integer  :: maxperproc         ! maximum number of elements per processor
 integer  :: rank               ! processor rank
+integer  :: face               ! ID number of interface problem
 
 real(rk), dimension(:),    allocatable :: soln     ! global solution vector
 real(rk), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
@@ -157,7 +158,8 @@ do rank = 1, numprocs
   
   call locationmatrix()                       ! form the location matrix
   call globalload()                           ! form the global load vector
-  BCs = edges(:, rank)                        ! assign bounadry conditions
+  BCs = (/ 1, n_nodes /)
+  !BCs = edges(:, rank)                        ! assign bounadry conditions
   
   print *, 'boundary conditions: ', BCvals(:, rank)
   rglob(1) = BCvals(1, rank)
@@ -175,6 +177,47 @@ do rank = 1, numprocs
 end do
 
 
+! solve the numprocs - 1 interface problems
+do while (.false.)
+!do face = 1, numprocs - 1
+  n_el = 2 ! one element on each side of the nodes between domains
+  n_nodes = n_el * n_en - (n_el - 1)
+ 
+  print *, '' 
+  print *, 'solving for interface problem: ', i
+  
+  ! coordinates for the present interface problem
+  allocate(xel(numnodes(rank)), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
+  xel = x((edges(2, face) - 1):(edges(2, face) + 1))
+  
+  allocate(LM(n_en, n_el), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
+  allocate(rglob(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
+  allocate(a(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of a array failed."
+  allocate(z(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of z array failed."
+  allocate(res(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of res array failed."
+  allocate(kelzprev(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
+  
+  call locationmatrix()                       ! form the location matrix
+  call globalload()                           ! form the global load vector
+  BCs = (/1, n_nodes/)                        ! assign BCs on ends of domain 
+  
+  rglob(1) = soln(edges(2, face) - 1)
+  rglob(n_nodes) = soln(edges(2, face) + 1)
+  
+  call cpu_time(startCG)
+  call conjugategradient()
+  call cpu_time(endCG)
+
+  deallocate(xel, LM, rglob, a, z, res, kelzprev)
+  
+end do
 
 
 
@@ -323,7 +366,8 @@ function sparse_mult_dot(matrix, LM, vector, vecdot)
   sparse_mult_dot = 0.0
   do q = 1, n_el ! loop over the elements
     do i = 1, n_en ! loop over all entries in kel
-      if (any(BCs == LM(i, q) + edges(1, rank) - 1)) then 
+      !if (any(BCs == LM(i, q) + edges(1, rank) - 1)) then 
+      if (any(BCs == LM(i, q))) then 
         do j = 1, n_en
           sparse_mult_dot = sparse_mult_dot + vecdot(LM(i, q)) * kronecker(LM(i, q), LM(j, q)) * vector(LM(j, q))
         end do
@@ -352,7 +396,8 @@ function sparse_mult(matrix, LM, vector)
    
   do q = 1, n_el ! loop over the elements
     do i = 1, n_en ! loop over all entries in kel
-      if (any(BCs == LM(i, q) + edges(1, rank) - 1)) then 
+      !if (any(BCs == LM(i, q) + edges(1, rank) - 1)) then 
+      if (any(BCs == LM(i, q))) then 
         do j = 1, n_en
           ! diagonal terms set to 1.0, off-diagonal set to 0.0
           sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
