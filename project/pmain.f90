@@ -57,13 +57,9 @@ real(rk), dimension(:),    allocatable :: z      ! CG update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
 real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
 
- 
-
-! initialize the thermal conductivity and heat source
-
 call cpu_time(start)
 
-call commandline(length, n_el, order, leftBC, rightBC) ! parse command line args
+call commandline(n_el, order, leftBC, rightBC) ! parse command line args
 call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem vars
 
 allocate(qp(n_qp), stat = AllocateStatus)
@@ -180,6 +176,7 @@ deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, z, res, LM)
 CONTAINS ! define all internal procedures
 
 subroutine elementalmatrices()
+  implicit none
   kel = 0.0
   rel = 0.0
   do q = 1, n_qp
@@ -195,6 +192,7 @@ end subroutine elementalmatrices
 
 
 subroutine conjugategradient()
+  implicit none
   ! initial guess is a straight line between the two endpoints
   m = (rightBC - leftBC) / length
   !do i = 1, n_nodes
@@ -235,6 +233,7 @@ end subroutine conjugategradient
 
 
 integer function kronecker(i, j)
+  implicit none
   integer :: i, j
   kronecker = int((float((i + j) - abs(i - j))) / (float((i + j) + abs(i - j))))
 end function kronecker
@@ -377,9 +376,8 @@ subroutine quadrature(order, n_qp)
 end subroutine quadrature
 
 
-subroutine commandline(length, n_el, order, leftBC, rightBC)
+subroutine commandline(n_el, order, leftBC, rightBC)
   implicit none
-  real(rk), intent(out) :: length
   integer, intent(out)  :: n_el
   integer, intent(out)  :: order
   real(rk), intent(out) :: leftBC
@@ -398,14 +396,12 @@ subroutine commandline(length, n_el, order, leftBC, rightBC)
     ! (read from the character buffer into the numeric variable)
     select case (i)
       case(1)
-        read(args, *) length  
-      case(2)
         read(args, *) n_el
-      case(3)
+      case(2)
         read(args, *) order
-      case(4)
+      case(3)
         read(args, *) leftBC
-      case(5)
+      case(4)
         read(args, *) rightBC
       case default
         write(*,*) "Too many command line parameters."
@@ -425,6 +421,7 @@ subroutine initialize(h, x, n_en, n_el, order, n_nodes)
 
   integer :: i ! looping variable
 
+  length = 1.0
   h = length / real(n_el)
   n_en = order + 1
   n_nodes = (order + 1) * n_el - (n_el - 1)
