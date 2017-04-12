@@ -48,7 +48,7 @@ integer,  dimension(:),    allocatable :: numnodes ! number of nodes in each dom
 integer,  dimension(:),    allocatable :: elems  ! holds number of elements in each domain
 integer,  dimension(:, :), allocatable :: edges  ! nodes on the edge of each domain
 integer,  dimension(:, :), allocatable :: LM     ! location matrix
-integer,  dimension(:),    allocatable :: BCs    ! boundary condition nodes
+integer,  dimension(2) :: BCs    ! boundary condition nodes
 real(rk), dimension(:),    allocatable :: qp     ! quadrature points
 real(rk), dimension(:),    allocatable :: wt     ! quadrature weights
 real(rk), dimension(:),    allocatable :: x      ! coordinates of the nodes
@@ -68,14 +68,18 @@ order = 1 ! only works for linear elements
 call commandline(n_el, leftBC, rightBC)           ! parse command line args
 call initialize(h, x, n_en, n_el, order, n_nodes) ! initialize problem vars
 call quadrature(order, n_qp)                      ! initialize quadrature
+call phi_val(order, qp)                           ! initialize shape functions
+call elementalmatrices()                          ! form elemental matrices and vectors
+
+! allocate the final solution vector before we change the value of n_nodes
+allocate(soln(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of soln array failed."
+soln = 0.0
 
 ! decompose a 1-D domain
 numprocs = 3
-rank = 1
 maxperproc = (n_el + numprocs - 1) / numprocs
 
-allocate(soln(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of soln array failed."
 allocate(numnodes(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
 allocate(elems(numprocs), stat = AllocateStatus)
@@ -116,61 +120,53 @@ do i = 1, numprocs
   end if
 end do
 
-! for this particular rank!
-n_el = elems(rank)
-n_nodes = numnodes(rank)
+do rank = 1, numprocs
+  ! for this particular rank!
+  n_el = elems(rank)
+  n_nodes = numnodes(rank)
+  
+  print *, 'solving for rank: ', rank
+  print *, 'elements per domain: ', elems
+  print *, 'nodes per domain: ', numnodes
+  print *, 'nodes on edge of domain: ', edges
+  
+  ! coordinates for the present rank
+  allocate(xel(numnodes(rank)), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
+  xel = x(edges(1, rank):edges(2, rank))
+  
+  allocate(LM(n_en, n_el), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
+  allocate(rglob(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
+  allocate(a(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of a array failed."
+  allocate(z(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of z array failed."
+  allocate(res(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of res array failed."
+  allocate(kelzprev(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
+  
+  call locationmatrix()                       ! form the location matrix
+  call globalload()                           ! form the global load vector
+  BCs = edges(:, rank)                        ! assign bounadry conditions
+  
+  print *, 'boundary conditions: ', BCvals(:, rank)
+  rglob(1) = BCvals(1, rank)
+  rglob(n_nodes) = BCvals(2, rank)   
+  
+  call cpu_time(startCG)
+  call conjugategradient()
+  call cpu_time(endCG)
+  print *, 'CG iteration time: ', endCG - startCG
+  print *, 'CG number: ', cnt
+  ! save results to the global solution vector
+  soln(edges(1, rank):edges(2, rank)) = a
 
-print *, 'elements per domain: ', elems
-!print *, 'nodes per domain: ', numnodes
-!print *, 'nodes on edge of domain: ', edges
+  deallocate(xel, LM, rglob, a, z, res, kelzprev)
+end do
 
-! coordinates for the present rank
-allocate(xel(numnodes(rank)), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
-xel = x(edges(1, rank):edges(2, rank))
-
-!print *, 'coordinates for rank 1: ', xel
-
-print *, 'Solving for ', n_el, ' elements'
-
-allocate(LM(n_en, n_el), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
-allocate(BCs(2), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of BCs array failed."
-allocate(rglob(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
-allocate(a(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of a array failed."
-allocate(z(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of z array failed."
-allocate(res(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-allocate(kelzprev(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
-
-! shape functions and elemental matrices are shared by all domains
-call phi_val(order, qp)                     ! initialize shape functions
-call elementalmatrices()                    ! form elemental matrices and vectors
-call locationmatrix()                       ! form the location matrix
-
-! determine the boundary condition nodes
-BCs = edges(:, rank)
-
-call globalload()                           ! form the global load vector
-
-print *, 'boundary conditions: ', BCvals(:, rank)
-rglob(1) = BCvals(1, rank)
-rglob(n_nodes) = BCvals(2, rank)   
-
-call cpu_time(startCG)
-call conjugategradient()
-call cpu_time(endCG)
-print *, 'CG iteration time: ', endCG - startCG
-print *, 'CG number: ', cnt
-
-! save results to the global solution vector
-soln = 0.0
-soln(edges(1, rank):edges(2, rank)) = a
 
 
 
@@ -189,8 +185,8 @@ open(2, file='timing.txt', status='old', action='write', &
   form='formatted', position='append')
 write(2, *), n_el, finish - start, endCG - startCG, cnt
 
-deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, z, res, LM)
-deallocate(elems, edges)
+deallocate(qp, wt, x, kel, rel, phi, dphi)
+deallocate(elems, edges, BCvals)
 
 
 
@@ -234,12 +230,14 @@ end subroutine elementalmatrices
 subroutine conjugategradient()
   implicit none
   ! initial guess is a straight line between the two endpoints
-  m = (rightBC - leftBC) / (xel(n_nodes) - xel(1))
-  !do i = 1, n_nodes
-  !  a(i) = m * x(i)
-  !end do
-  a           = m * (xel - xel(1)) + leftBC
+  m = (BCvals(2, rank) - BCvals(1, rank)) / (xel(n_nodes) - xel(1))
+  
+  a           = m * (xel - xel(1)) + BCvals(1, rank)
+!  print *, 'initial CG guess: ', a
+!  print *, 'rglobal: ', rglob
+
   res         = rglob - sparse_mult(kel, LM, a)
+!  print *, 'first residual: ', res
   z           = res
   lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
   a           = a + lambda * z
@@ -305,7 +303,7 @@ function sparse_mult_dot(matrix, LM, vector, vecdot)
   sparse_mult_dot = 0.0
   do q = 1, n_el ! loop over the elements
     do i = 1, n_en ! loop over all entries in kel
-      if (any(BCs == LM(i, q))) then 
+      if (any(BCs == LM(i, q) + edges(1, rank) - 1)) then 
         do j = 1, n_en
           sparse_mult_dot = sparse_mult_dot + vecdot(LM(i, q)) * kronecker(LM(i, q), LM(j, q)) * vector(LM(j, q))
         end do
@@ -334,7 +332,7 @@ function sparse_mult(matrix, LM, vector)
    
   do q = 1, n_el ! loop over the elements
     do i = 1, n_en ! loop over all entries in kel
-      if (any(BCs == LM(i, q))) then 
+      if (any(BCs == LM(i, q) + edges(1, rank) - 1)) then 
         do j = 1, n_en
           ! diagonal terms set to 1.0, off-diagonal set to 0.0
           sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
