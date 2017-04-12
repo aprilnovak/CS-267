@@ -62,13 +62,8 @@ real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
 call cpu_time(start)
 order = 1 ! only works for linear elements
 
-call commandline(n_el, leftBC, rightBC)    ! parse command line args
-! n_el: total number of elements in domain
-! leftBC, rightBC: boundary conditions on the physical domain
-
+call commandline(n_el, leftBC, rightBC)           ! parse command line args
 call initialize(h, x, n_en, n_el, order, n_nodes) ! initialize problem vars
-! attributes that apply to the entire domain
-
 call quadrature(order, n_qp)                      ! initialize quadrature
 
 ! decompose a 1-D domain
@@ -104,7 +99,6 @@ do j = 1, numprocs
   numnodes(j) = elems(j) * n_en - (elems(j) - 1)
 end do
 
-
 ! assign the global node numbers that correspond to the edges of each domain
 do i = 1, numprocs
   if (i == 1) then
@@ -122,14 +116,6 @@ print *, 'starting element of domain: ', cumelems
 print *, 'nodes per domain: ', numnodes
 print *, 'nodes on edge of domain: ', edges
 
-allocate(phi(order + 1, n_qp), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
-allocate(dphi(order + 1, n_qp), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of dphi array failed."
-allocate(kel(n_en, n_en), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of kel array failed."
-allocate(rel(n_en), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of rel array failed."
 allocate(LM(n_en, n_el), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
 allocate(BCs(2), stat = AllocateStatus)
@@ -151,7 +137,7 @@ call elementalmatrices()                    ! form elemental matrices and vector
 
 ! global location matrix - will need an individual LM for each domain
 call locationmatrix()                       ! form the location matrix (global)
-
+!call locationmatrix_local()                 ! location matrix for the current domain
 
 ! determine the boundary condition nodes
 BCs = (/1, n_nodes/)
@@ -198,6 +184,12 @@ CONTAINS ! define all internal procedures
 
 subroutine elementalmatrices()
   implicit none
+
+  allocate(kel(n_en, n_en), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of kel array failed."
+  allocate(rel(n_en), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rel array failed."
+
   kel = 0.0
   rel = 0.0
   do q = 1, n_qp
@@ -352,6 +344,10 @@ subroutine phi_val(order, qp)
   integer,  intent(in)  :: order
   real(rk), intent(in)  :: qp(:)
 
+  allocate(phi(order + 1, n_qp), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
+  allocate(dphi(order + 1, n_qp), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of dphi array failed."
 
   select case(order)
     case(1)
