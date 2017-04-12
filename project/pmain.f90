@@ -39,7 +39,10 @@ real(rk) :: endCG              ! end, CG
 real(rk) :: m                  ! slope of line
 integer  :: numprocs           ! number of processors
 integer  :: maxperproc         ! maximum number of elements per processor
+integer  :: rank               ! processor rank
 
+real(rk), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
+real(rk), dimension(:),    allocatable :: xel      ! coordinates in each domain
 integer,  dimension(:),    allocatable :: numnodes ! number of nodes in each domain
 integer,  dimension(:),    allocatable :: cumelems ! holds starting element number in each domain
 integer,  dimension(:),    allocatable :: elems  ! holds number of elements in each domain
@@ -68,6 +71,7 @@ call quadrature(order, n_qp)                      ! initialize quadrature
 
 ! decompose a 1-D domain
 numprocs = 3
+rank = 1
 maxperproc = (n_el + numprocs - 1) / numprocs
 
 allocate(numnodes(numprocs), stat = AllocateStatus)
@@ -78,6 +82,8 @@ allocate(cumelems(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of cumelems array failed."
 allocate(edges(2, numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
+allocate(BCvals(2, numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of BCvals array failed."
 
 ! initially assign each processor to have the maximum number of elements
 elems = maxperproc
@@ -108,13 +114,22 @@ do i = 1, numprocs
   end if
 end do
 
-! BCs = edges(:, rank)
-! n_el = elems(rank)
-! n_nodes = numnodes(rank)
+!n_el = elems(rank)
+!n_nodes = numnodes(rank)
+
 print *, 'elements per domain: ', elems
 print *, 'starting element of domain: ', cumelems
 print *, 'nodes per domain: ', numnodes
 print *, 'nodes on edge of domain: ', edges
+
+! coordinates for the present rank
+allocate(xel(numnodes(rank)), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
+xel = x(edges(1, rank):edges(2, rank))
+
+print *, 'coordinates for rank 1: ', xel
+
+
 
 allocate(LM(n_en, n_el), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
@@ -140,6 +155,7 @@ call locationmatrix()                       ! form the location matrix (global)
 !call locationmatrix_local()                 ! location matrix for the current domain
 
 ! determine the boundary condition nodes
+!BCs = edges(:, rank)
 BCs = (/1, n_nodes/)
 
 ! form the global load vector
@@ -153,7 +169,9 @@ end do
 
 ! apply boundary conditions
 rglob(1) = leftBC                ! left BC value
-rglob(n_nodes) = rightBC         ! right BC value     
+rglob(n_nodes) = rightBC         ! right BC value  
+! rglob(1) = BCvals(1, rank)
+! rglob(n_nodes) = BCvals(2, rank)   
 
 call cpu_time(startCG)
 call conjugategradient()
