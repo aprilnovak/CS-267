@@ -60,9 +60,6 @@ real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
  
 
 ! initialize the thermal conductivity and heat source
-k = 1.0
-source = 1.0
-tol = 0.001
 
 call cpu_time(start)
 
@@ -174,6 +171,11 @@ open(2, file='timing.txt', status='old', action='write', &
 write(2, *), n_el, finish - start, endCG - startCG, cnt
 
 deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, z, res, LM)
+
+
+
+
+
 
 CONTAINS ! define all internal procedures
 
@@ -426,7 +428,12 @@ subroutine initialize(h, x, n_en, n_el, order, n_nodes)
   h = length / real(n_el)
   n_en = order + 1
   n_nodes = (order + 1) * n_el - (n_el - 1)
-   
+
+  ! other problem parameters
+  k = 1.0
+  source = 1.0
+  tol = 0.001
+  
   ! allocate memory for the vector of node coordinates
   allocate(x(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
