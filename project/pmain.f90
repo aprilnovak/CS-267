@@ -178,8 +178,7 @@ end do
 
 
 ! solve the numprocs - 1 interface problems
-do while (.false.)
-!do face = 1, numprocs - 1
+do face = 1, numprocs - 1
   n_el = 2 ! one element on each side of the nodes between domains
   n_nodes = n_el * n_en - (n_el - 1)
  
@@ -214,6 +213,8 @@ do while (.false.)
   call cpu_time(startCG)
   call conjugategradient()
   call cpu_time(endCG)
+
+  print *, a
 
   deallocate(xel, LM, rglob, a, z, res, kelzprev)
   
