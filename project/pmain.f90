@@ -40,6 +40,7 @@ real(rk) :: m                  ! slope of line
 integer  :: numprocs           ! number of processors
 integer  :: maxperproc         ! maximum number of elements per processor
 
+integer,  dimension(:),    allocatable :: numnodes ! number of nodes in each domain
 integer,  dimension(:),    allocatable :: cumelems ! holds starting element number in each domain
 integer,  dimension(:),    allocatable :: elems  ! holds number of elements in each domain
 integer,  dimension(:, :), allocatable :: edges  ! nodes on the edge of each domain
@@ -77,6 +78,8 @@ call quadrature(order, n_qp)                      ! initialize quadrature
 numprocs = 3
 maxperproc = (n_el + numprocs - 1) / numprocs
 
+allocate(numnodes(numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
 allocate(elems(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
 allocate(cumelems(numprocs), stat = AllocateStatus)
@@ -102,11 +105,14 @@ i = 1
 do j = 1, numprocs
   cumelems(j) = i
   i = i + elems(j)
+
+  numnodes(j) = elems(j) * n_en - (elems(j) - 1)
 end do
 
 ! n_el = elems(rank)
 print *, elems
 print *, cumelems
+print *, numnodes
 
 ! assign the global node numbers that correspond to the edges of each domain
 do i = 1, numprocs
