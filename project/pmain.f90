@@ -68,10 +68,6 @@ call commandline(n_el, order, leftBC, rightBC)    ! parse command line args
 call initialize(h, x, n_en, n_el, order, n_nodes) ! initialize problem vars
 ! attributes that apply to the entire domain
 
-allocate(qp(n_qp), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of qp array failed."
-allocate(wt(n_qp), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of wt array failed."
 call quadrature(order, n_qp)                      ! initialize quadrature
 
 ! decompose a 1-D domain
@@ -110,6 +106,7 @@ do j = 1, numprocs
 end do
 
 ! n_el = elems(rank)
+! n_nodes = numnodes(rank)
 print *, elems
 print *, cumelems
 print *, numnodes
@@ -384,6 +381,10 @@ subroutine quadrature(order, n_qp)
   n_qp = 2
   !n_qp = ceiling((real(order) + 1.0) / 2.0)
 
+  allocate(qp(n_qp), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of qp array failed."
+  allocate(wt(n_qp), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of wt array failed."
   
   select case(n_qp)
     case(1)
