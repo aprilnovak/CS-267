@@ -41,6 +41,8 @@ integer  :: numprocs           ! number of processors
 integer  :: maxperproc         ! maximum number of elements per processor
 integer  :: rank               ! processor rank
 integer  :: face               ! ID number of interface problem
+integer  :: iter               ! domain decomposition solution iteration counter
+logical  :: exists             ! tests for file existence 
 
 real(rk), dimension(:),    allocatable :: soln     ! global solution vector
 real(rk), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
@@ -66,7 +68,6 @@ real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
 k = 1.0
 source = 10.0
 tol = 0.0001
-  
 
 call cpu_time(start)
 order = 1 ! only works for linear elements
@@ -76,6 +77,8 @@ call initialize(h, x, n_en, n_el, order, n_nodes) ! initialize problem vars
 call quadrature(order, n_qp)                      ! initialize quadrature
 call phi_val(order, qp)                           ! initialize shape functions
 call elementalmatrices()                          ! form elemental matrices and vectors
+
+print *, 'Total number of nodes: ', n_nodes
 
 ! allocate the final solution vector before we change the value of n_nodes
 allocate(soln(n_nodes), stat = AllocateStatus)
@@ -130,115 +133,117 @@ print *, 'elements per domain: ', elems
 print *, 'nodes per domain: ', numnodes
 print *, 'nodes on edge of domain: ', edges
 
+do iter = 1, 10
+  do rank = 1, numprocs
+    n_el = elems(rank)
+    n_nodes = numnodes(rank)
+   
+  !  print *, '' 
+  !  print *, 'solving for rank: ', rank
+    
+    ! coordinates for the present rank
+    allocate(xel(numnodes(rank)), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
+    xel = x(edges(1, rank):edges(2, rank))
+    
+    allocate(LM(n_en, n_el), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
+    allocate(rglob(n_nodes), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
+    allocate(a(n_nodes), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of a array failed."
+    allocate(z(n_nodes), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of z array failed."
+    allocate(res(n_nodes), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of res array failed."
+    allocate(kelzprev(n_nodes), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
+    
+    call locationmatrix()                       ! form the location matrix
+    call globalload()                           ! form the global load vector
+    BCs = (/ 1, n_nodes /)
+    !BCs = edges(:, rank)                        ! assign bounadry conditions
+    
+  !  print *, 'boundary conditions: ', BCvals(:, rank)
+    rglob(1) = BCvals(1, rank)
+    rglob(n_nodes) = BCvals(2, rank)   
+    
+    call cpu_time(startCG)
+    call conjugategradient()
+    call cpu_time(endCG)
+    print *, 'CG iteration time: ', endCG - startCG
+    print *, 'CG number: ', cnt
+    ! save results to the global solution vector
+    soln(edges(1, rank):edges(2, rank)) = a
+  
+    deallocate(xel, LM, rglob, a, z, res, kelzprev)
+  end do
 
-do rank = 1, numprocs
-  n_el = elems(rank)
-  n_nodes = numnodes(rank)
+
+  ! solve the numprocs - 1 interface problems
+  do face = 1, numprocs - 1
+    n_el = 2 ! one element on each side of the nodes between domains
+    n_nodes = n_el * n_en - (n_el - 1)
+   
+    print *, '' 
+    print *, 'solving for interface problem: ', face
+    
+    ! coordinates for the present interface problem
+    allocate(xel(numnodes(rank)), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
+    xel = x((edges(2, face) - 1):(edges(2, face) + 1))
+    
+    allocate(LM(n_en, n_el), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
+    allocate(rglob(n_nodes), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
+    allocate(a(n_nodes), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of a array failed."
+    allocate(z(n_nodes), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of z array failed."
+    allocate(res(n_nodes), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of res array failed."
+    allocate(kelzprev(n_nodes), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
+    
+    call locationmatrix()                       ! form the location matrix
+    call globalload()                           ! form the global load vector
+    BCs = (/1, n_nodes/)                        ! assign BCs on ends of domain 
+    
+    rglob(1) = soln(edges(2, face) - 1)
+    rglob(n_nodes) = soln(edges(2, face) + 1)
+    
+    call conjugategradientsmall()
+    
+    ! update the BCvals matrix
+    BCvals(2, face) = a(n_en)
+    BCvals(1, face + 1) = a(n_en) ! assumes you have only one element on either side
+  
+    deallocate(xel, LM, rglob, a, z, res, kelzprev)
+  end do
+
+
+  print *, 'updated boundary conditions: '
+  print *, BCvals(1, :)
+  print *, BCvals(2, :)
+  
+  if (iter == 1) then
+    ! write to an output file. If this file exists, it will be re-written.
+    open(1, file='output.txt', iostat=AllocateStatus, status="replace")
+    if (AllocateStatus /= 0) STOP "output.txt file opening failed."
+  end if
+
+  write(1, *) soln(:)
  
-  print *, '' 
-  print *, 'solving for rank: ', rank
+  print *, 'runtime: ', finish - start
   
-  ! coordinates for the present rank
-  allocate(xel(numnodes(rank)), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
-  xel = x(edges(1, rank):edges(2, rank))
-  
-  allocate(LM(n_en, n_el), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
-  allocate(rglob(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
-  allocate(a(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of a array failed."
-  allocate(z(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of z array failed."
-  allocate(res(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-  allocate(kelzprev(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
-  
-  call locationmatrix()                       ! form the location matrix
-  call globalload()                           ! form the global load vector
-  BCs = (/ 1, n_nodes /)
-  !BCs = edges(:, rank)                        ! assign bounadry conditions
-  
-  print *, 'boundary conditions: ', BCvals(:, rank)
-  rglob(1) = BCvals(1, rank)
-  rglob(n_nodes) = BCvals(2, rank)   
-  
-  call cpu_time(startCG)
-  call conjugategradient()
-  call cpu_time(endCG)
-  print *, 'CG iteration time: ', endCG - startCG
-  print *, 'CG number: ', cnt
-  ! save results to the global solution vector
-  soln(edges(1, rank):edges(2, rank)) = a
+  open(2, file='timing.txt', status='old', action='write', &
+    form='formatted', position='append')
+  write(2, *), n_el, finish - start, endCG - startCG, cnt
 
-  deallocate(xel, LM, rglob, a, z, res, kelzprev)
 end do
-
-
-! solve the numprocs - 1 interface problems
-!do while (.false.)
-do face = 1, numprocs - 1
-  n_el = 2 ! one element on each side of the nodes between domains
-  n_nodes = n_el * n_en - (n_el - 1)
- 
-  print *, '' 
-  print *, 'solving for interface problem: ', face
-  
-  ! coordinates for the present interface problem
-  allocate(xel(numnodes(rank)), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
-  xel = x((edges(2, face) - 1):(edges(2, face) + 1))
-  
-  allocate(LM(n_en, n_el), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
-  allocate(rglob(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
-  allocate(a(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of a array failed."
-  allocate(z(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of z array failed."
-  allocate(res(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-  allocate(kelzprev(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
-  
-  call locationmatrix()                       ! form the location matrix
-  call globalload()                           ! form the global load vector
-  BCs = (/1, n_nodes/)                        ! assign BCs on ends of domain 
-  
-  rglob(1) = soln(edges(2, face) - 1)
-  rglob(n_nodes) = soln(edges(2, face) + 1)
-  
-  call conjugategradientsmall()
-
-  BCvals(2, face) = a(n_en)
-  BCvals(1, face + 1) = a(n_en) ! assumes you have only one element on either side
-
-  print *, a
-
-  ! update the BCvals matrix
-  deallocate(xel, LM, rglob, a, z, res, kelzprev)
-end do
-
-
-print *, 'updated boundary conditions: '
-print *, BCvals(1, :)
-print *, BCvals(2, :)
-
-
-! write to an output file. If this file exists, it will be re-written.
-open(1, file='output.txt', iostat=AllocateStatus, status="replace")
-if (AllocateStatus /= 0) STOP "output.txt file opening failed."
-write(1, *) soln(:)
 
 call cpu_time(finish)
-print *, 'runtime: ', finish - start
-
-open(2, file='timing.txt', status='old', action='write', &
-  form='formatted', position='append')
-write(2, *), n_el, finish - start, endCG - startCG, cnt
 
 deallocate(qp, wt, x, kel, rel, phi, dphi)
 deallocate(elems, edges, BCvals)
