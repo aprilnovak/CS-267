@@ -40,6 +40,7 @@ real(rk) :: m                  ! slope of line
 integer  :: numprocs           ! number of processors
 integer  :: maxperproc         ! maximum number of elements per processor
 
+integer,  dimension(:),    allocatable :: cumelems ! holds starting element number in each domain
 integer,  dimension(:),    allocatable :: elems  ! holds number of elements in each domain
 integer,  dimension(:, :), allocatable :: edges  ! nodes on the edge of each domain
 integer,  dimension(:, :), allocatable :: LM     ! location matrix
@@ -78,6 +79,8 @@ maxperproc = (n_el + numprocs - 1) / numprocs
 
 allocate(elems(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
+allocate(cumelems(numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of cumelems array failed."
 allocate(edges(2, numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
 
@@ -95,7 +98,15 @@ do while (j > 0)
   if (i == numprocs + 1) i = 1
 end do
 
+i = 1
+do j = 1, numprocs
+  cumelems(j) = i
+  i = i + elems(j)
+end do
+
+! n_el = elems(rank)
 print *, elems
+print *, cumelems
 
 ! assign the global node numbers that correspond to the edges of each domain
 do i = 1, numprocs
@@ -106,12 +117,8 @@ do i = 1, numprocs
   end if
 end do
 
+! BCs = edges(:, rank)
 print*, edges
-
-
-
-
-
 
 allocate(phi(order + 1, n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
@@ -136,9 +143,13 @@ if (AllocateStatus /= 0) STOP "Allocation of res array failed."
 allocate(kelzprev(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
 
+! shape functions and elemental matrices are shared by all domains
 call phi_val(order, qp)                     ! initialize shape functions
 call elementalmatrices()                    ! form elemental matrices and vectors
-call locationmatrix()                       ! form the location matrix
+
+! global location matrix - will need an individual LM for each domain
+call locationmatrix()                       ! form the location matrix (global)
+
 
 ! determine the boundary condition nodes
 BCs = (/1, n_nodes/)
@@ -175,7 +186,7 @@ open(2, file='timing.txt', status='old', action='write', &
 write(2, *), n_el, finish - start, endCG - startCG, cnt
 
 deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, z, res, LM)
-
+deallocate(elems, cumelems, edges)
 
 
 
