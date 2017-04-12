@@ -83,7 +83,7 @@ if (AllocateStatus /= 0) STOP "Allocation of soln array failed."
 soln = 0.0
 
 ! decompose a 1-D domain
-numprocs = 3
+numprocs = 4
 maxperproc = (n_el + numprocs - 1) / numprocs
 
 allocate(numnodes(numprocs), stat = AllocateStatus)
@@ -178,12 +178,13 @@ end do
 
 
 ! solve the numprocs - 1 interface problems
+!do while (.false.)
 do face = 1, numprocs - 1
   n_el = 2 ! one element on each side of the nodes between domains
   n_nodes = n_el * n_en - (n_el - 1)
  
   print *, '' 
-  print *, 'solving for interface problem: ', i
+  print *, 'solving for interface problem: ', face
   
   ! coordinates for the present interface problem
   allocate(xel(numnodes(rank)), stat = AllocateStatus)
@@ -210,10 +211,12 @@ do face = 1, numprocs - 1
   rglob(1) = soln(edges(2, face) - 1)
   rglob(n_nodes) = soln(edges(2, face) + 1)
   
-  call conjugategradient()
+  call conjugategradientsmall()
 
-  BCvals(2, face) = a(n_el * n_en / 2)
-  BCvals(1, face + 1) = a(n_el * n_en / 2)
+  BCvals(2, face) = a(n_en)
+  BCvals(1, face + 1) = a(n_en) ! assumes you have only one element on either side
+
+  print *, a
 
   ! update the BCvals matrix
   deallocate(xel, LM, rglob, a, z, res, kelzprev)
@@ -277,6 +280,59 @@ subroutine elementalmatrices()
   end do
 end subroutine elementalmatrices
 
+subroutine conjugategradientsmall()
+  implicit none
+  ! initial guess is a straight line between the two endpoints
+  m = (soln(edges(2, face) + 1) - soln(edges(2, face) - 1)) / (xel(n_nodes) - xel(1))
+  
+  a           = m * (xel - xel(1)) + soln(edges(2, face) - 1)
+!  print *, 'initial CG guess: ', a
+!  print *, 'rglobal: ', rglob
+
+  res         = rglob - sparse_mult(kel, LM, a)
+!  print *, 'first residual: ', res
+  z           = res
+  lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
+  a           = a + lambda * z
+!  print *, 'first update: ', a
+  res         = rglob - sparse_mult(kel, LM, a) ! second residual
+  convergence = 0.0
+ 
+  ! should really check whether or not the residual is small 
+  ! since that's really what determines if we need another update
+  do i = 1, n_nodes
+    convergence = convergence + abs(res(i))
+  end do
+  
+  cnt = 0
+  do while (convergence > tol)
+    !kelzprev = sparse_mult(kel, LM, z) 
+
+    res      = rglob - sparse_mult(kel, LM, a)
+    !print *, 'second residual: ', res
+    theta    = sparse_mult_dot(kel, LM, z, res) / sparse_mult_dot(kel, LM, z, z)
+    !print *, 'theta: ', theta
+
+    !theta    = dotprod(res, kelzprev) / dotprod(z, kelzprev)
+    z        = res - theta * z
+    lambda   = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z)
+    !lambda   = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
+    a        = a + lambda * z
+ 
+    !print *, 'lambda: ', lambda
+
+
+! change to breaking from loop by evaluating the residual
+    res      = rglob - sparse_mult(kel, LM, a)
+    convergence = 0.0
+    do i = 1, n_nodes
+      convergence = convergence + abs(res(i))
+    end do
+    
+  cnt = cnt + 1
+  end do
+  !print *, 'final update: ', a 
+end subroutine conjugategradientsmall
 
 
 subroutine conjugategradient()
@@ -285,15 +341,15 @@ subroutine conjugategradient()
   m = (BCvals(2, rank) - BCvals(1, rank)) / (xel(n_nodes) - xel(1))
   
   a           = m * (xel - xel(1)) + BCvals(1, rank)
-  !print *, 'initial CG guess: ', a
-  !print *, 'rglobal: ', rglob
+!  print *, 'initial CG guess: ', a
+!  print *, 'rglobal: ', rglob
 
   res         = rglob - sparse_mult(kel, LM, a)
-  !print *, 'first residual: ', res
+!  print *, 'first residual: ', res
   z           = res
   lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
   a           = a + lambda * z
-  !print *, 'first update: ', a
+!  print *, 'first update: ', a
   res         = rglob - sparse_mult(kel, LM, a) ! second residual
   convergence = 0.0
  
