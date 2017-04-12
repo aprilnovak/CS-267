@@ -152,20 +152,13 @@ call elementalmatrices()                    ! form elemental matrices and vector
 
 ! global location matrix - will need an individual LM for each domain
 call locationmatrix()                       ! form the location matrix (global)
-!call locationmatrix_local()                 ! location matrix for the current domain
+!call locationmatrix_local()                ! location matrix for the current domain
 
 ! determine the boundary condition nodes
 !BCs = edges(:, rank)
 BCs = (/1, n_nodes/)
 
-! form the global load vector
-! elements in LM are accessed by column (fastest)
-rglob = 0.0
-do q = 1, n_el
-  do i = 1, n_en
-    rglob(LM(i, q)) = rglob(LM(i, q)) + rel(i)
-  end do
-end do
+call globalload()                           ! form the global load vector
 
 ! apply boundary conditions
 rglob(1) = leftBC                ! left BC value
@@ -199,6 +192,17 @@ deallocate(elems, cumelems, edges)
 
 
 CONTAINS ! define all internal procedures
+
+subroutine globalload()
+  implicit none
+  rglob = 0.0
+  do q = 1, n_el
+    do i = 1, n_en
+      rglob(LM(i, q)) = rglob(LM(i, q)) + rel(i)
+    end do
+  end do
+end subroutine globalload
+
 
 subroutine elementalmatrices()
   implicit none
