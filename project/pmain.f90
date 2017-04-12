@@ -210,18 +210,19 @@ do face = 1, numprocs - 1
   rglob(1) = soln(edges(2, face) - 1)
   rglob(n_nodes) = soln(edges(2, face) + 1)
   
-  call cpu_time(startCG)
   call conjugategradient()
-  call cpu_time(endCG)
 
-  print *, a
+  BCvals(2, face) = a(n_el * n_en / 2)
+  BCvals(1, face + 1) = a(n_el * n_en / 2)
 
+  ! update the BCvals matrix
   deallocate(xel, LM, rglob, a, z, res, kelzprev)
-  
 end do
 
 
-
+print *, 'updated boundary conditions: '
+print *, BCvals(1, :)
+print *, BCvals(2, :)
 
 
 ! write to an output file. If this file exists, it will be re-written.
