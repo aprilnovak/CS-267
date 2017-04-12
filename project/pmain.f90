@@ -59,14 +59,18 @@ real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
 
 call cpu_time(start)
 
-call commandline(n_el, order, leftBC, rightBC) ! parse command line args
-call initialize(h, x, n_en, n_el, order, n_nodes)      ! initialize problem vars
+call commandline(n_el, order, leftBC, rightBC)    ! parse command line args
+! n_el: total number of elements in domain
+! leftBC, rightBC: boundary conditions on the physical domain
+
+call initialize(h, x, n_en, n_el, order, n_nodes) ! initialize problem vars
+! attributes that apply to the entire domain
 
 allocate(qp(n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of qp array failed."
 allocate(wt(n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of wt array failed."
-call quadrature(order, n_qp)                   ! initialize quadrature
+call quadrature(order, n_qp)                      ! initialize quadrature
 
 ! decompose a 1-D domain
 numprocs = 3
@@ -74,7 +78,6 @@ maxperproc = (n_el + numprocs - 1) / numprocs
 
 allocate(elems(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
-
 allocate(edges(2, numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
 
@@ -88,17 +91,22 @@ i = 1
 do while (j > 0)
   elems(i) = elems(i) - 1
   i = i + 1 ! move to the next domain
-  if (i == numprocs + 1) then
-    i = 1
-  end if  
   j = j - 1
+  if (i == numprocs + 1) i = 1
 end do
 
 print *, elems
 
+! assign the global node numbers that correspond to the edges of each domain
+do i = 1, numprocs
+  if (i == 1) then
+    edges(:, i) = (/1, elems(i) * n_en - (elems(i) - 1)/)
+  else
+    edges(:, i) = (/edges(2, i - 1), edges(2, i - 1) + elems(i) * n_en - elems(i) /)
+  end if
+end do
 
-
-
+print*, edges
 
 
 
