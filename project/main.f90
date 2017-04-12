@@ -153,10 +153,10 @@ CONTAINS ! define all internal procedures
 subroutine conjugategradient()
   ! initial guess is a straight line between the two endpoints
   m = (rightBC - leftBC) / length
-  do i = 1, n_nodes
-    a(i) = m * x(i)
-  end do
-
+  !do i = 1, n_nodes
+  !  a(i) = m * x(i)
+  !end do
+  a           = m * x
   a           = a + leftBC
   res         = rglob - sparse_mult(kel, LM, a)
   z           = res
@@ -219,7 +219,7 @@ function sparse_mult_dot(matrix, LM, vector, vecdot)
   ! return value of function
   real(rk) :: sparse_mult_dot
   integer  :: i, j, q ! looping variables
-   
+ 
   sparse_mult_dot = 0.0
   do q = 1, n_el ! loop over the elements
     do i = 1, n_en ! loop over all entries in kel
@@ -228,8 +228,9 @@ function sparse_mult_dot(matrix, LM, vector, vecdot)
           sparse_mult_dot = sparse_mult_dot + vecdot(LM(i, q)) * kronecker(LM(i, q), LM(j, q)) * vector(LM(j, q))
         end do
       else
+        ! implicitly assumes that the matrix is symmetric (ok for this application)
         do j = 1, n_en
-          sparse_mult_dot = sparse_mult_dot + vecdot(LM(i, q)) * matrix(i, j) * vector(LM(j, q))
+          sparse_mult_dot = sparse_mult_dot + vecdot(LM(i, q)) * matrix(j, i) * vector(LM(j, q))
         end do
       end if
     end do

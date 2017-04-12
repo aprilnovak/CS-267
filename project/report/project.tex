@@ -565,15 +565,13 @@ The first, and perhaps most obvious, way to improve performance is to reduce unn
 
 Single Instruction, Multiple Data (SIMD) is the process by which a single instruction is used to perform an operation on multiple pieces of data at the same time. When instructed with the appropriate vectorization flags, the compiler will try to find SIMD parallelism and use them as much as possible. Because a register only consists of a limited number of bytes, the degree of parallelism achievable is dependent on the data type of the variable that is being operated on. If a register contains 16 bytes, then because doubles are 8 bytes, while floats are 4 bytes, you can only achieve 2x parallelism with doubles, but 4x parallelism with floats. Using the GNU compiler, automatic vectorization can be attempted using the {\tt -O3} flag. Using this flag, as opposed to zero compiler flags, yields a dramatic performance improvement. Fig. \ref{fig:O3-flag} shows the runtime as a function of the number of elements with the naive serial code (no compiler flags) and the same code compiled with the {\tt -O3} option.
 
-% naive-serial.txt: original serial code version, with no vectorization or other optimizations made in the CG solver
-% O3-dotprod.txt: original code compiled with -O3
-% better-initial-guess.txt: original code, compiled with -O3, but a linear starting guess
+However, compilers in general cannot vectorize code to the full extent possible, so some manual modifications were investigated to see if they could improve performance. 
 
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.6\linewidth]{../figures/O3-flag.png}
-\caption{Runtime as a function of the number of elements with the naive serial code (no compiler flags) and the same code compiled with the {\tt -O3} option, both with the initial naive iterative solution guess of \(a=1.0\) and with a linear interpolation.}
-\end{figure}
+
+
+
+
+The Intel compiler provides good vectorization reports when using the {\tt -qopt-report=3} compiler option. 
 
 \section{Parallel Implementation}
 This section discusses parallelization of the serial code developed in the previous section. In general, there are two very different parallelization strategies here - the first involves domain decomposition amongst parallel threads, where each parallel thread then runs a complete FEM solution, with iteration between threads until all threads agree on the values of the solution at the boundaries between the spatial domain allocated to each process. Alternatively, a single FEM problem can be run (with no need to iterate boundary conditions because the domain is not decomposed), and the work for the single FEM solve distributed amongst parallel instances.
