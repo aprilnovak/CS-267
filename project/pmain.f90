@@ -61,11 +61,16 @@ real(rk), dimension(:),    allocatable :: a      ! CG solution iterates
 real(rk), dimension(:),    allocatable :: z      ! CG update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
 real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
+! other problem parameters
+k = 1.0
+source = 1.0
+tol = 0.0001
+  
 
 call cpu_time(start)
 order = 1 ! only works for linear elements
 
-call commandline(n_el, leftBC, rightBC)           ! parse command line args
+call commandline(n_el, length, leftBC, rightBC)           ! parse command line args
 call initialize(h, x, n_en, n_el, order, n_nodes) ! initialize problem vars
 call quadrature(order, n_qp)                      ! initialize quadrature
 call phi_val(order, qp)                           ! initialize shape functions
@@ -120,15 +125,17 @@ do i = 1, numprocs
   end if
 end do
 
+print *, 'elements per domain: ', elems
+print *, 'nodes per domain: ', numnodes
+print *, 'nodes on edge of domain: ', edges
+
+
 do rank = 1, numprocs
-  ! for this particular rank!
   n_el = elems(rank)
   n_nodes = numnodes(rank)
-  
+ 
+  print *, '' 
   print *, 'solving for rank: ', rank
-  print *, 'elements per domain: ', elems
-  print *, 'nodes per domain: ', numnodes
-  print *, 'nodes on edge of domain: ', edges
   
   ! coordinates for the present rank
   allocate(xel(numnodes(rank)), stat = AllocateStatus)
@@ -233,18 +240,22 @@ subroutine conjugategradient()
   m = (BCvals(2, rank) - BCvals(1, rank)) / (xel(n_nodes) - xel(1))
   
   a           = m * (xel - xel(1)) + BCvals(1, rank)
-!  print *, 'initial CG guess: ', a
-!  print *, 'rglobal: ', rglob
+  print *, 'initial CG guess: ', a
+  print *, 'rglobal: ', rglob
 
   res         = rglob - sparse_mult(kel, LM, a)
-!  print *, 'first residual: ', res
+  print *, 'first residual: ', res
   z           = res
   lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
   a           = a + lambda * z
+  print *, 'first update: ', a
+  res         = rglob - sparse_mult(kel, LM, a) ! second residual
   convergence = 0.0
-  
+ 
+  ! should really check whether or not the residual is small 
+  ! since that's really what determines if we need another update
   do i = 1, n_nodes
-    convergence = convergence + abs(z(i))
+    convergence = convergence + abs(res(i))
   end do
   
   cnt = 0
@@ -252,20 +263,29 @@ subroutine conjugategradient()
     !kelzprev = sparse_mult(kel, LM, z) 
 
     res      = rglob - sparse_mult(kel, LM, a)
+    print *, 'second residual: ', res
     theta    = sparse_mult_dot(kel, LM, z, res) / sparse_mult_dot(kel, LM, z, z)
+    print *, 'theta: ', theta
+
     !theta    = dotprod(res, kelzprev) / dotprod(z, kelzprev)
     z        = res - theta * z
     lambda   = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z)
     !lambda   = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
     a        = a + lambda * z
-  
+ 
+    print *, 'lambda: ', lambda
+
+
+! change to breaking from loop by evaluating the residual
+    res      = rglob - sparse_mult(kel, LM, a)
     convergence = 0.0
     do i = 1, n_nodes
-      convergence = convergence + abs(z(i))
+      convergence = convergence + abs(res(i))
     end do
     
   cnt = cnt + 1
   end do
+  print *, 'final update: ', a 
 end subroutine conjugategradient
 
 
@@ -422,9 +442,10 @@ subroutine quadrature(order, n_qp)
 end subroutine quadrature
 
 
-subroutine commandline(n_el, leftBC, rightBC)
+subroutine commandline(n_el, length, leftBC, rightBC)
   implicit none
   integer, intent(out)  :: n_el
+  real(rk), intent(out) :: length
   real(rk), intent(out) :: leftBC
   real(rk), intent(out) :: rightBC
  
@@ -441,10 +462,12 @@ subroutine commandline(n_el, leftBC, rightBC)
     ! (read from the character buffer into the numeric variable)
     select case (i)
       case(1)
-        read(args, *) n_el
+        read(args, *), length
       case(2)
-        read(args, *) leftBC
+        read(args, *) n_el
       case(3)
+        read(args, *) leftBC
+      case(4)
         read(args, *) rightBC
       case default
         write(*,*) "Too many command line parameters."
@@ -464,16 +487,10 @@ subroutine initialize(h, x, n_en, n_el, order, n_nodes)
 
   integer :: i ! looping variable
 
-  length = 1.0
   h = length / real(n_el)
   n_en = order + 1
   n_nodes = (order + 1) * n_el - (n_el - 1)
 
-  ! other problem parameters
-  k = 1.0
-  source = 1.0
-  tol = 0.001
-  
   ! allocate memory for the vector of node coordinates
   allocate(x(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
