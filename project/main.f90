@@ -37,11 +37,7 @@ real(rk) :: endMem             ! end, memory allocation
 real(rk) :: startCG            ! start, CG
 real(rk) :: endCG              ! end, CG
 real(rk) :: m                  ! slope of line
-integer  :: numprocs           ! number of processors
-integer  :: maxperproc         ! maximum number of elements per processor
 
-integer,  dimension(:),    allocatable :: elems  ! holds number of elements in each domain
-integer,  dimension(:, :), allocatable :: edges  ! nodes on the edge of each domain
 integer,  dimension(:, :), allocatable :: LM     ! location matrix
 integer,  dimension(:),    allocatable :: BCs    ! boundary condition nodes
 real(rk), dimension(:),    allocatable :: qp     ! quadrature points
@@ -73,42 +69,6 @@ allocate(qp(n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of qp array failed."
 allocate(wt(n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of wt array failed."
-
-! decompose a 1-D domain
-numprocs = 3
-maxperproc = (n_el + numprocs - 1) / numprocs
-
-allocate(elems(numprocs), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
-
-allocate(edges(2, numprocs), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
-
-! initially assign each processor to have the maximum number of elements
-elems = maxperproc
-
-! number of extra elements that we have allocated
-j = maxperproc * numprocs - n_el
-
-i = 1
-do while (j > 0)
-  elems(i) = elems(i) - 1
-  i = i + 1 ! move to the next domain
-  if (i == numprocs + 1) then
-    i = 1
-  end if  
-  j = j - 1
-end do
-
-print *, elems
-
-
-
-
-
-
-
-
 
 call quadrature(order, n_qp)                   ! initialize quadrature
 
