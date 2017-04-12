@@ -73,6 +73,7 @@ allocate(qp(n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of qp array failed."
 allocate(wt(n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of wt array failed."
+call quadrature(order, n_qp)                   ! initialize quadrature
 
 ! decompose a 1-D domain
 numprocs = 3
@@ -110,7 +111,6 @@ print *, elems
 
 
 
-call quadrature(order, n_qp)                   ! initialize quadrature
 
 allocate(phi(order + 1, n_qp), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
@@ -136,21 +136,8 @@ allocate(kelzprev(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
 
 call phi_val(order, qp)                     ! initialize shape functions
-
-! form the elemental stiffness matrix and load vector
-kel = 0.0
-rel = 0.0
-do q = 1, n_qp
-  do i = 1, n_en
-    rel(i) = rel(i) + wt(q) * source * phi(i, q) * h *h / 2.0
-    do j = 1, n_en
-      kel(i, j) = kel(i, j) + wt(q) * dphi(i, q) * k * dphi(j, q) * 2.0
-    end do
-  end do
-end do
-
-! form the location matrix
-call locationmatrix()
+call elementalmatrices()                    ! form elemental matrices and vectors
+call locationmatrix()                       ! form the location matrix
 
 ! determine the boundary condition nodes
 BCs = (/1, n_nodes/)
@@ -189,6 +176,21 @@ write(2, *), n_el, finish - start, endCG - startCG, cnt
 deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, z, res, LM)
 
 CONTAINS ! define all internal procedures
+
+subroutine elementalmatrices()
+  kel = 0.0
+  rel = 0.0
+  do q = 1, n_qp
+    do i = 1, n_en
+      rel(i) = rel(i) + wt(q) * source * phi(i, q) * h *h / 2.0
+      do j = 1, n_en
+        kel(i, j) = kel(i, j) + wt(q) * dphi(i, q) * k * dphi(j, q) * 2.0
+      end do
+    end do
+  end do
+end subroutine elementalmatrices
+
+
 
 subroutine conjugategradient()
   ! initial guess is a straight line between the two endpoints
