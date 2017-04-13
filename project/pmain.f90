@@ -30,10 +30,6 @@ real(rk) :: start              ! holds run times
 real(rk) :: finish             ! holds run times
 real(rk) :: startCL            ! start, command line parse
 real(rk) :: endCL              ! end, command line parse
-real(rk) :: startInit          ! start, initialization
-real(rk) :: endInit            ! end, initialization
-real(rk) :: startMem           ! start, memory allocation
-real(rk) :: endMem             ! end, memory allocation
 real(rk) :: startCG            ! start, CG
 real(rk) :: endCG              ! end, CG
 real(rk) :: m                  ! slope of line
@@ -64,21 +60,19 @@ real(rk), dimension(:),    allocatable :: a      ! CG solution iterates
 real(rk), dimension(:),    allocatable :: z      ! CG update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
 real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
-! other problem parameters
-k = 1.0
-source = 10.0
-tol = 0.0001
+
+k = 1.0        ! thermal conductivity
+source = 10.0  ! heat source
+tol = 0.0001   ! CG convergence tolerance
 
 call cpu_time(start)
 order = 1 ! only works for linear elements
 
-call commandline(n_el, length, leftBC, rightBC)           ! parse command line args
+call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
 call initialize(h, x, n_en, n_el, order, n_nodes) ! initialize problem vars
 call quadrature(order, n_qp)                      ! initialize quadrature
 call phi_val(order, qp)                           ! initialize shape functions
 call elementalmatrices()                          ! form elemental matrices and vectors
-
-print *, 'Total number of nodes: ', n_nodes
 
 ! allocate the final solution vector before we change the value of n_nodes
 allocate(soln(n_nodes), stat = AllocateStatus)
