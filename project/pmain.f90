@@ -3,8 +3,8 @@ PROGRAM main
 
 implicit none
 
-! define double precision with 15 digits of accuracy
-! and an exponent range of +- 307
+! define double precision with 8 digits of accuracy
+! and an exponent range of +- 30
 integer, parameter :: rk = selected_real_kind(8, 30)
 
 ! variables for overall execution
@@ -84,51 +84,8 @@ soln = 0.0
 
 ! decompose a 1-D domain
 numprocs = 4
-maxperproc = (n_el + numprocs - 1) / numprocs
 
-allocate(numnodes(numprocs), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
-allocate(elems(numprocs), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
-allocate(edges(2, numprocs), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
-allocate(BCvals(2, numprocs), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of BCvals array failed."
-
-! assign the boundary conditions to the very edge nodes
-BCvals = 1.0 ! initial inter-element guesses
-BCvals(1, 1) = leftBC
-BCvals(2, numprocs) = rightBC
-
-! initially assign each processor to have the maximum number of elements
-elems = maxperproc
-j = maxperproc * numprocs - n_el
-
-i = 1
-do while (j > 0)
-  elems(i) = elems(i) - 1
-  i = i + 1 ! move to the next domain
-  j = j - 1
-  if (i == numprocs + 1) i = 1
-end do
-
-i = 1
-do j = 1, numprocs
-  numnodes(j) = elems(j) * n_en - (elems(j) - 1)
-end do
-
-! assign the global node numbers that correspond to the edges of each domain
-do i = 1, numprocs
-  if (i == 1) then
-    edges(:, i) = (/1, elems(i) * n_en - (elems(i) - 1)/)
-  else
-    edges(:, i) = (/edges(2, i - 1), edges(2, i - 1) + elems(i) * n_en - elems(i) /)
-  end if
-end do
-
-print *, 'elements per domain: ', elems
-print *, 'nodes per domain: ', numnodes
-print *, 'nodes on edge of domain: ', edges
+call initializedecomp                              ! initialize domain decomposition
 
 do iter = 1, 100
   do rank = 1, numprocs
@@ -245,6 +202,60 @@ deallocate(elems, edges, BCvals)
 
 
 CONTAINS ! define all internal procedures
+
+subroutine initializedecomp()
+  implicit none
+  maxperproc = (n_el + numprocs - 1) / numprocs
+  
+  allocate(numnodes(numprocs), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
+  allocate(elems(numprocs), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
+  allocate(edges(2, numprocs), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
+  allocate(BCvals(2, numprocs), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of BCvals array failed."
+  
+  ! assign an initial guess to all boundaries, and then assigne
+  ! user-defined BCs to the very edge nodes
+  BCvals = 1.0
+  BCvals(1, 1) = leftBC
+  BCvals(2, numprocs) = rightBC
+  
+  ! initially assign each processor to have the maximum number of elements
+  ! and distribute the remainder amongst the processors
+  elems = maxperproc
+  j = maxperproc * numprocs - n_el
+  
+  i = 1
+  do while (j > 0)
+    elems(i) = elems(i) - 1
+    i = i + 1 ! move to the next domain
+    j = j - 1
+    if (i == numprocs + 1) i = 1
+  end do
+  
+  i = 1
+  do j = 1, numprocs
+    numnodes(j) = elems(j) * n_en - (elems(j) - 1)
+  end do
+  
+  ! assign the global node numbers that correspond to the edges of each domain
+  do i = 1, numprocs
+    if (i == 1) then
+      edges(:, i) = (/1, elems(i) * n_en - (elems(i) - 1)/)
+    else
+      edges(:, i) = (/edges(2, i - 1), edges(2, i - 1) + elems(i) * n_en - elems(i) /)
+    end if
+  end do
+  
+  print *, 'elements per domain: ', elems
+  print *, 'nodes per domain: ', numnodes
+  print *, 'nodes on edge of domain: ', edges
+
+end subroutine initializedecomp
+
+
 
 subroutine globalload()
   implicit none
