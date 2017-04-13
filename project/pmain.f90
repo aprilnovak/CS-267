@@ -115,7 +115,7 @@ do iter = 1, 100
     rglob(BCs(2)) = BCvals(2, rank)   
     
     call cpu_time(startCG)
-    call conjugategradient()
+    call conjugategradient(BCvals(2, rank), BCvals(1, rank))
     call cpu_time(endCG)
     
     ! save results to the global solution vector
@@ -151,7 +151,7 @@ do iter = 1, 100
     rglob(1) = soln(edges(2, face) - 1)
     rglob(n_nodes) = soln(edges(2, face) + 1)
     
-    call conjugategradientsmall()
+    call conjugategradient(soln(edges(2, face) + 1), soln(edges(2, face) - 1))
     
     ! update the BCvals matrix
     BCvals(2, face) = a(n_en * n_el / 2)
@@ -268,64 +268,14 @@ subroutine elementalmatrices()
   end do
 end subroutine elementalmatrices
 
-subroutine conjugategradientsmall()
+
+subroutine conjugategradient(rightBC, leftBC)
   implicit none
+  real(rk), intent(in) :: rightBC, leftBC
+
   ! initial guess is a straight line between the two endpoints
-  m = (soln(edges(2, face) + 1) - soln(edges(2, face) - 1)) / (xel(n_nodes) - xel(1))
-  
-  a           = m * (xel - xel(1)) + soln(edges(2, face) - 1)
-!  print *, 'initial CG guess: ', a
-!  print *, 'rglobal: ', rglob
-
-  res         = rglob - sparse_mult(kel, LM, a)
-!  print *, 'first residual: ', res
-  z           = res
-  lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
-  a           = a + lambda * z
-!  print *, 'first update: ', a
-  res         = rglob - sparse_mult(kel, LM, a) ! second residual
-  convergence = 0.0
- 
-  ! should really check whether or not the residual is small 
-  ! since that's really what determines if we need another update
-  do i = 1, n_nodes
-    convergence = convergence + abs(res(i))
-  end do
-  
-  cnt = 0
-  do while (convergence > tol)
-    res      = rglob - sparse_mult(kel, LM, a)
-    !print *, 'second residual: ', res
-    theta    = sparse_mult_dot(kel, LM, z, res) / sparse_mult_dot(kel, LM, z, z)
-    !print *, 'theta: ', theta
-
-    z        = res - theta * z
-    lambda   = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z)
-    !lambda   = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
-    a        = a + lambda * z
- 
-    !print *, 'lambda: ', lambda
-
-
-! change to breaking from loop by evaluating the residual
-    res      = rglob - sparse_mult(kel, LM, a)
-    convergence = 0.0
-    do i = 1, n_nodes
-      convergence = convergence + abs(res(i))
-    end do
-    
-  cnt = cnt + 1
-  end do
-  !print *, 'final update: ', a 
-end subroutine conjugategradientsmall
-
-
-subroutine conjugategradient()
-  implicit none
-  ! initial guess is a straight line between the two endpoints
-  m = (BCvals(2, rank) - BCvals(1, rank)) / (xel(n_nodes) - xel(1))
-  
-  a           = m * (xel - xel(1)) + BCvals(1, rank)
+  m = (rightBC - leftBC) / (xel(n_nodes) - xel(1))
+  a           = m * (xel - xel(1)) + leftBC
 !  print *, 'initial CG guess: ', a
 !  print *, 'rglobal: ', rglob
 
