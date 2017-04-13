@@ -82,24 +82,17 @@ allocate(soln(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of soln array failed."
 soln = 0.0
 
-! decompose a 1-D domain
 numprocs = 4
-
-call initializedecomp                              ! initialize domain decomposition
+call initializedecomp                             ! initialize domain decomposition
 
 do iter = 1, 100
+  ! solve over each individual domain
   do rank = 1, numprocs
     n_el = elems(rank)
     n_nodes = numnodes(rank)
-   
-  !  print *, '' 
-  !  print *, 'solving for rank: ', rank
     
-    ! coordinates for the present rank
     allocate(xel(numnodes(rank)), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
-    xel = x(edges(1, rank):edges(2, rank))
-    
     allocate(LM(n_en, n_el), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
     allocate(rglob(n_nodes), stat = AllocateStatus)
@@ -111,39 +104,33 @@ do iter = 1, 100
     allocate(res(n_nodes), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocation of res array failed."
     
+    xel = x(edges(1, rank):edges(2, rank))
+    
     call locationmatrix()                       ! form the location matrix
     call globalload()                           ! form the global load vector
+    
     BCs = (/ 1, n_nodes /)                      ! BCs are always applied on end nodes
     
-  !  print *, 'boundary conditions: ', BCvals(:, rank)
-    rglob(1) = BCvals(1, rank)
-    rglob(n_nodes) = BCvals(2, rank)   
+    rglob(BCs(1)) = BCvals(1, rank)
+    rglob(BCs(2)) = BCvals(2, rank)   
     
     call cpu_time(startCG)
     call conjugategradient()
     call cpu_time(endCG)
-    print *, 'CG iteration time: ', endCG - startCG
-    print *, 'CG number: ', cnt
+    
     ! save results to the global solution vector
     soln(edges(1, rank):edges(2, rank)) = a
   
     deallocate(xel, LM, rglob, a, z, res)
   end do
 
-
   ! solve the numprocs - 1 interface problems
   do face = 1, numprocs - 1
     n_el = 2 ! one element on each side of the nodes between domains
     n_nodes = n_el * n_en - (n_el - 1)
    
-    print *, '' 
-    print *, 'solving for interface problem: ', face
-    
-    ! coordinates for the present interface problem
     allocate(xel(numnodes(rank)), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
-    xel = x((edges(2, face) - 1):(edges(2, face) + 1))
-    
     allocate(LM(n_en, n_el), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
     allocate(rglob(n_nodes), stat = AllocateStatus)
@@ -154,6 +141,8 @@ do iter = 1, 100
     if (AllocateStatus /= 0) STOP "Allocation of z array failed."
     allocate(res(n_nodes), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocation of res array failed."
+    
+    xel = x((edges(2, face) - 1):(edges(2, face) + 1))
     
     call locationmatrix()                       ! form the location matrix
     call globalload()                           ! form the global load vector
@@ -165,8 +154,8 @@ do iter = 1, 100
     call conjugategradientsmall()
     
     ! update the BCvals matrix
-    BCvals(2, face) = a(n_en)
-    BCvals(1, face + 1) = a(n_en) ! assumes you have only one element on either side
+    BCvals(2, face) = a(n_en * n_el / 2)
+    BCvals(1, face + 1) = a(n_en * n_el / 2)
   
     deallocate(xel, LM, rglob, a, z, res)
   end do
@@ -216,7 +205,7 @@ subroutine initializedecomp()
   allocate(BCvals(2, numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of BCvals array failed."
   
-  ! assign an initial guess to all boundaries, and then assigne
+  ! assign an initial guess to all boundaries, and then assign
   ! user-defined BCs to the very edge nodes
   BCvals = 1.0
   BCvals(1, 1) = leftBC
@@ -235,24 +224,15 @@ subroutine initializedecomp()
     if (i == numprocs + 1) i = 1
   end do
   
-  i = 1
   do j = 1, numprocs
     numnodes(j) = elems(j) * n_en - (elems(j) - 1)
   end do
   
   ! assign the global node numbers that correspond to the edges of each domain
-  do i = 1, numprocs
-    if (i == 1) then
-      edges(:, i) = (/1, elems(i) * n_en - (elems(i) - 1)/)
-    else
-      edges(:, i) = (/edges(2, i - 1), edges(2, i - 1) + elems(i) * n_en - elems(i) /)
-    end if
+  edges(:, i) = (/1, elems(i) * n_en - (elems(i) - 1)/)
+  do i = 2, numprocs
+    edges(:, i) = (/edges(2, i - 1), edges(2, i - 1) + elems(i) * n_en - elems(i) /)
   end do
-  
-  print *, 'elements per domain: ', elems
-  print *, 'nodes per domain: ', numnodes
-  print *, 'nodes on edge of domain: ', edges
-
 end subroutine initializedecomp
 
 
