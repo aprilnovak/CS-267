@@ -133,7 +133,7 @@ print *, 'elements per domain: ', elems
 print *, 'nodes per domain: ', numnodes
 print *, 'nodes on edge of domain: ', edges
 
-do iter = 1, 10
+do iter = 1, 100
   do rank = 1, numprocs
     n_el = elems(rank)
     n_nodes = numnodes(rank)
@@ -161,8 +161,7 @@ do iter = 1, 10
     
     call locationmatrix()                       ! form the location matrix
     call globalload()                           ! form the global load vector
-    BCs = (/ 1, n_nodes /)
-    !BCs = edges(:, rank)                        ! assign bounadry conditions
+    BCs = (/ 1, n_nodes /)                      ! BCs are always applied on end nodes
     
   !  print *, 'boundary conditions: ', BCvals(:, rank)
     rglob(1) = BCvals(1, rank)
@@ -429,7 +428,6 @@ function sparse_mult_dot(matrix, LM, vector, vecdot)
   sparse_mult_dot = 0.0
   do q = 1, n_el ! loop over the elements
     do i = 1, n_en ! loop over all entries in kel
-      !if (any(BCs == LM(i, q) + edges(1, rank) - 1)) then 
       if (any(BCs == LM(i, q))) then 
         do j = 1, n_en
           sparse_mult_dot = sparse_mult_dot + vecdot(LM(i, q)) * kronecker(LM(i, q), LM(j, q)) * vector(LM(j, q))
@@ -459,7 +457,6 @@ function sparse_mult(matrix, LM, vector)
    
   do q = 1, n_el ! loop over the elements
     do i = 1, n_en ! loop over all entries in kel
-      !if (any(BCs == LM(i, q) + edges(1, rank) - 1)) then 
       if (any(BCs == LM(i, q))) then 
         do j = 1, n_en
           ! diagonal terms set to 1.0, off-diagonal set to 0.0
