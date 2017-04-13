@@ -48,21 +48,21 @@ real(rk), dimension(:),    allocatable :: soln     ! global solution vector
 real(rk), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
 real(rk), dimension(:),    allocatable :: xel      ! coordinates in each domain
 integer,  dimension(:),    allocatable :: numnodes ! number of nodes in each domain
-integer,  dimension(:),    allocatable :: elems  ! holds number of elements in each domain
-integer,  dimension(:, :), allocatable :: edges  ! nodes on the edge of each domain
-integer,  dimension(:, :), allocatable :: LM     ! location matrix
-integer,  dimension(2) :: BCs    ! boundary condition nodes
-real(rk), dimension(:),    allocatable :: qp     ! quadrature points
-real(rk), dimension(:),    allocatable :: wt     ! quadrature weights
-real(rk), dimension(:),    allocatable :: x      ! coordinates of the nodes
-real(rk), dimension(:, :), allocatable :: kel    ! elemental stiffness matrix
-real(rk), dimension(:),    allocatable :: rel    ! elemental load vector
-real(rk), dimension(:, :), allocatable :: phi    ! shape functions
-real(rk), dimension(:, :), allocatable :: dphi   ! shape function derivatives
-real(rk), dimension(:),    allocatable :: rglob  ! global load vector
-real(rk), dimension(:),    allocatable :: a      ! CG solution iterates
-real(rk), dimension(:),    allocatable :: z      ! CG update iterates
-real(rk), dimension(:),    allocatable :: res    ! solution residual
+integer,  dimension(:),    allocatable :: elems    ! n_el in each domain
+integer,  dimension(:, :), allocatable :: edges    ! nodes on edge of each domain
+integer,  dimension(:, :), allocatable :: LM       ! location matrix
+integer,  dimension(2)                 :: BCs      ! boundary condition nodes
+real(rk), dimension(:),    allocatable :: qp       ! quadrature points
+real(rk), dimension(:),    allocatable :: wt       ! quadrature weights
+real(rk), dimension(:),    allocatable :: x        ! coordinates of the nodes
+real(rk), dimension(:, :), allocatable :: kel      ! elemental stiffness matrix
+real(rk), dimension(:),    allocatable :: rel      ! elemental load vector
+real(rk), dimension(:, :), allocatable :: phi      ! shape functions
+real(rk), dimension(:, :), allocatable :: dphi     ! shape function derivatives
+real(rk), dimension(:),    allocatable :: rglob    ! global load vector
+real(rk), dimension(:),    allocatable :: a        ! CG solution iterates
+real(rk), dimension(:),    allocatable :: z        ! CG update iterates
+real(rk), dimension(:),    allocatable :: res      ! solution residual
 
 k = 1.0        ! thermal conductivity
 source = 10.0  ! heat source
@@ -113,14 +113,14 @@ do iter = 1, 100
     
     rglob(BCs(1)) = BCvals(1, rank)
     rglob(BCs(2)) = BCvals(2, rank)   
-    
-    call cpu_time(startCG)
+   
+    ! perform CG solve 
     call conjugategradient(BCvals(2, rank), BCvals(1, rank))
-    call cpu_time(endCG)
     
     ! save results to the global solution vector
     soln(edges(1, rank):edges(2, rank)) = a
   
+    ! deallocate memory before next processor begins its solve
     deallocate(xel, LM, rglob, a, z, res)
   end do
 
@@ -159,11 +159,6 @@ do iter = 1, 100
   
     deallocate(xel, LM, rglob, a, z, res)
   end do
-
-
-  print *, 'updated boundary conditions: '
-  print *, BCvals(1, :)
-  print *, BCvals(2, :)
   
   if (iter == 1) then
     ! write to an output file. If this file exists, it will be re-written.
@@ -173,7 +168,6 @@ do iter = 1, 100
 
   write(1, *) soln(:)
  
-  print *, 'runtime: ', finish - start
   
   open(2, file='timing.txt', status='old', action='write', &
     form='formatted', position='append')
@@ -182,7 +176,9 @@ do iter = 1, 100
 end do
 
 call cpu_time(finish)
+print *, 'runtime: ', finish - start
 
+! deallocate variables shared by all processors
 deallocate(qp, wt, x, kel, rel, phi, dphi)
 deallocate(elems, edges, BCvals)
 
@@ -274,42 +270,28 @@ subroutine conjugategradient(rightBC, leftBC)
   real(rk), intent(in) :: rightBC, leftBC
 
   ! initial guess is a straight line between the two endpoints
-  m = (rightBC - leftBC) / (xel(n_nodes) - xel(1))
+  m           = (rightBC - leftBC) / (xel(n_nodes) - xel(1))
   a           = m * (xel - xel(1)) + leftBC
-!  print *, 'initial CG guess: ', a
-!  print *, 'rglobal: ', rglob
-
   res         = rglob - sparse_mult(kel, LM, a)
-!  print *, 'first residual: ', res
   z           = res
   lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
   a           = a + lambda * z
-!  print *, 'first update: ', a
-  res         = rglob - sparse_mult(kel, LM, a) ! second residual
+  res         = rglob - sparse_mult(kel, LM, a)
   convergence = 0.0
  
-  ! should really check whether or not the residual is small 
-  ! since that's really what determines if we need another update
+  ! convergence is assessed by the magnitude of the residual
   do i = 1, n_nodes
     convergence = convergence + abs(res(i))
   end do
   
   cnt = 0
   do while (convergence > tol)
-    res      = rglob - sparse_mult(kel, LM, a)
-    !print *, 'second residual: ', res
     theta    = sparse_mult_dot(kel, LM, z, res) / sparse_mult_dot(kel, LM, z, z)
-    !print *, 'theta: ', theta
     z        = res - theta * z
     lambda   = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z)
-    !lambda   = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
     a        = a + lambda * z
- 
-    !print *, 'lambda: ', lambda
-
-
-! change to breaking from loop by evaluating the residual
     res      = rglob - sparse_mult(kel, LM, a)
+    
     convergence = 0.0
     do i = 1, n_nodes
       convergence = convergence + abs(res(i))
@@ -317,7 +299,6 @@ subroutine conjugategradient(rightBC, leftBC)
     
   cnt = cnt + 1
   end do
-  !print *, 'final update: ', a 
 end subroutine conjugategradient
 
 
@@ -527,8 +508,6 @@ subroutine initialize(h, x, n_en, n_el, order, n_nodes)
   allocate(x(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
 
-  ! loop is vectorized, estimated speedup: 3.47
-  ! changed from two type converts to only one
   do i = 1, size(x)
     x(i) = real(i - 1) * h / real(n_en - 1)
   end do
