@@ -1,4 +1,6 @@
 ! program to solve the heat equation (Dirichlet boundary conditions only)
+! using domain decomposition.
+
 PROGRAM main
 
 implicit none
@@ -12,7 +14,6 @@ integer  :: AllocateStatus     ! variable to hold memory allocation success
 integer  :: i, j, q            ! loop iteration variables
 real(rk) :: start              ! holds start run time
 real(rk) :: finish             ! holds end run time
-logical  :: exists             ! tests for file existence 
 
 ! variables to define the global problem
 integer  :: n_el               ! number of (global) elements
@@ -46,7 +47,11 @@ integer  :: iter               ! domain decomposition solution iteration counter
 integer  :: sidenum            ! half-thickness of interface layer
 integer  :: leftnode           ! node number at left of interface layer
 integer  :: rightnode          ! node number at right of interface layer
+integer  :: ddcnt              ! domain decomposition counter
+real(rk) :: itererror          ! whole-loop iteration error
+real(rk) :: ddtol              ! domain decomposition loop tolerance
 
+real(rk), dimension(:),    allocatable :: prev     ! previous interface values
 real(rk), dimension(:),    allocatable :: soln     ! global solution vector
 real(rk), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
 real(rk), dimension(:),    allocatable :: xel      ! coordinates in each domain
@@ -70,6 +75,7 @@ real(rk), dimension(:),    allocatable :: res      ! solution residual
 k = 1.0        ! thermal conductivity
 source = 10.0  ! heat source
 tol = 0.0001   ! CG convergence tolerance
+ddtol = 0.0005 ! domain decomposition loop tolerance
 sidenum = 1    ! elements on each side of the layers
 
 call cpu_time(start)
@@ -87,11 +93,14 @@ if (AllocateStatus /= 0) STOP "Allocation of soln array failed."
 soln = 0.0
 
 numprocs = 4
-call initializedecomp(x)                   ! initialize domain decomposition
+call initializedecomp()                   ! initialize domain decomposition
 
-do iter = 1, 100
-  ! solve over each individual domain
-  do rank = 1, numprocs
+ddcnt = 0
+do while (itererror > ddtol)
+  ! save the previous values of the interface BCs
+  prev = BCvals(1, 2:numprocs)
+
+  do rank = 1, numprocs ! solve over each domain
     n_el = elems(rank)
     n_nodes = numnodes(rank)
     
@@ -165,8 +174,14 @@ do iter = 1, 100
   
     deallocate(xel, LM, rglob, a, z, res)
   end do ! ends solution of all interface problems
+
+  ! compute itererror to evaluate whether to continue the iterations
+  itererror = 0.0
+  do i = 1, numprocs - 1
+    itererror = itererror + abs(BCvals(1, i + 1) - prev(i))
+  end do
   
-  if (iter == 1) then
+  if (ddcnt == 0) then
     ! write to an output file. If this file exists, it will be re-written.
     open(1, file='output.txt', iostat=AllocateStatus, status="replace")
     if (AllocateStatus /= 0) STOP "output.txt file opening failed."
@@ -174,19 +189,22 @@ do iter = 1, 100
 
   write(1, *) soln(:)
  
-  
   open(2, file='timing.txt', status='old', action='write', &
     form='formatted', position='append')
   write(2, *), n_el, finish - start, endCG - startCG, cnt
 
+ddcnt = ddcnt + 1
 end do ! ends outermost domain decomposition loop
+
+
 
 call cpu_time(finish)
 print *, 'runtime: ', finish - start
+print *, 'DD iterations: ', ddcnt
 
 ! deallocate variables shared by all processors
 deallocate(qp, wt, x, kel, rel, phi, dphi)
-deallocate(elems, edges, BCvals)
+deallocate(elems, edges, BCvals, prev)
 
 
 
@@ -194,12 +212,9 @@ deallocate(elems, edges, BCvals)
 
 CONTAINS ! define all internal procedures
 
-subroutine initializedecomp(x)
+subroutine initializedecomp()
   implicit none
-  real(rk), intent(in) :: x(:)
 
-  maxperproc = (n_el + numprocs - 1) / numprocs
-  
   allocate(numnodes(numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
   allocate(elems(numprocs), stat = AllocateStatus)
@@ -209,19 +224,20 @@ subroutine initializedecomp(x)
   allocate(BCvals(2, numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of BCvals array failed."
   
-  ! initially assign each processor to have the maximum number of elements
-  ! and distribute the remainder amongst the processors
+  ! distribute the elements among the processors 
+  maxperproc = (n_el + numprocs - 1) / numprocs
   elems = maxperproc
   j = maxperproc * numprocs - n_el
   
   i = 1
   do while (j > 0)
     elems(i) = elems(i) - 1
-    i = i + 1 ! move to the next domain
+    i = i + 1
     j = j - 1
     if (i == numprocs + 1) i = 1
   end do
-  
+ 
+  ! assign the numbers of nodes in each domain 
   do j = 1, numprocs
     numnodes(j) = elems(j) * n_en - (elems(j) - 1)
   end do
@@ -243,6 +259,12 @@ subroutine initializedecomp(x)
     BCvals(2, i) = m * x(edges(2, i)) + leftBC
     BCvals(1, i + 1) = BCvals(2, i)
   end do
+
+  allocate(prev(numprocs - 1), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of prev array failed."
+  
+  ! assign an initial itererror (dummy value to enter the loop)
+  itererror = 1
 end subroutine initializedecomp
 
 
