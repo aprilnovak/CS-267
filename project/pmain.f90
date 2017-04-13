@@ -44,6 +44,8 @@ integer  :: rank               ! processor rank
 integer  :: face               ! ID number of interface problem
 integer  :: iter               ! domain decomposition solution iteration counter
 integer  :: sidenum            ! half-thickness of interface layer
+integer  :: leftnode           ! node number at left of interface layer
+integer  :: rightnode          ! node number at right of interface layer
 
 real(rk), dimension(:),    allocatable :: soln     ! global solution vector
 real(rk), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
@@ -68,7 +70,7 @@ real(rk), dimension(:),    allocatable :: res      ! solution residual
 k = 1.0        ! thermal conductivity
 source = 10.0  ! heat source
 tol = 0.0001   ! CG convergence tolerance
-sidenum = 2    ! 2 elements on each side of the layers
+sidenum = 1    ! elements on each side of the layers
 
 call cpu_time(start)
 order = 1 ! only works for linear elements
@@ -85,7 +87,7 @@ if (AllocateStatus /= 0) STOP "Allocation of soln array failed."
 soln = 0.0
 
 numprocs = 4
-call initializedecomp                             ! initialize domain decomposition
+call initializedecomp(x)                   ! initialize domain decomposition
 
 do iter = 1, 100
   ! solve over each individual domain
@@ -143,17 +145,19 @@ do iter = 1, 100
     if (AllocateStatus /= 0) STOP "Allocation of z array failed."
     allocate(res(n_nodes), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-    
-    xel = x((edges(2, face) - sidenum):(edges(2, face) + sidenum))
+   
+    leftnode  = edges(2, face) - sidenum 
+    rightnode = edges(2, face) + sidenum
+    xel = x(leftnode:rightnode)
     
     call locationmatrix()                       ! form the location matrix
     call globalload()                           ! form the global load vector
+    
     BCs = (/1, n_nodes/)                        ! assign BCs on ends of domain 
+    rglob(BCs(1)) = soln(leftnode)
+    rglob(BCs(2)) = soln(rightnode)
     
-    rglob(1) = soln(edges(2, face) - sidenum)
-    rglob(n_nodes) = soln(edges(2, face) + sidenum)
-    
-    call conjugategradient(soln(edges(2, face) + sidenum), soln(edges(2, face) - sidenum))
+    call conjugategradient(rglob(1), rglob(n_nodes))
     
     ! update the BCvals matrix
     BCvals(2, face) = a(n_en * sidenum)
@@ -190,8 +194,10 @@ deallocate(elems, edges, BCvals)
 
 CONTAINS ! define all internal procedures
 
-subroutine initializedecomp()
+subroutine initializedecomp(x)
   implicit none
+  real(rk), intent(in) :: x(:)
+
   maxperproc = (n_el + numprocs - 1) / numprocs
   
   allocate(numnodes(numprocs), stat = AllocateStatus)
@@ -202,12 +208,6 @@ subroutine initializedecomp()
   if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
   allocate(BCvals(2, numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of BCvals array failed."
-  
-  ! assign an initial guess to all boundaries, and then assign
-  ! user-defined BCs to the very edge nodes
-  BCvals = 1.0
-  BCvals(1, 1) = leftBC
-  BCvals(2, numprocs) = rightBC
   
   ! initially assign each processor to have the maximum number of elements
   ! and distribute the remainder amongst the processors
@@ -230,6 +230,18 @@ subroutine initializedecomp()
   edges(:, i) = (/1, elems(i) * n_en - (elems(i) - 1)/)
   do i = 2, numprocs
     edges(:, i) = (/edges(2, i - 1), edges(2, i - 1) + elems(i) * n_en - elems(i) /)
+  end do
+  
+  ! assign an initial guess to all boundaries, and then assign
+  ! user-defined BCs to the very edge nodes. This initial guess
+  ! is a straight line between the two endpoints
+  m = (rightBC - leftBC) / length
+  BCvals(1, 1) = leftBC
+  BCvals(2, numprocs) = rightBC
+
+  do i = 1, numprocs - 1
+    BCvals(2, i) = m * x(edges(2, i)) + leftBC
+    BCvals(1, i + 1) = BCvals(2, i)
   end do
 end subroutine initializedecomp
 
