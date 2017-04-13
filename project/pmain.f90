@@ -7,38 +7,42 @@ implicit none
 ! and an exponent range of +- 307
 integer, parameter :: rk = selected_real_kind(8, 30)
 
+! variables for overall execution
 integer  :: AllocateStatus     ! variable to hold memory allocation success
 integer  :: i, j, q            ! loop iteration variables
+real(rk) :: start              ! holds start run time
+real(rk) :: finish             ! holds end run time
+logical  :: exists             ! tests for file existence 
 
-integer  :: n_el               ! number of elements
+! variables to define the global problem
+integer  :: n_el               ! number of (global) elements
 integer  :: n_en               ! number of nodes per element
-integer  :: n_nodes            ! total number of nodes
+integer  :: n_nodes            ! number of (global) nodes
 integer  :: order              ! polynomial order
 integer  :: n_qp               ! number of quadrature points
-integer  :: cnt                ! number of CG iterations
 real(rk) :: length             ! length of the domain (1-D)
 real(rk) :: h                  ! length of one element
 real(rk) :: k                  ! thermal conductivity
 real(rk) :: source             ! uniform heat source
 real(rk) :: leftBC             ! left Dirichlet boundary condition value
 real(rk) :: rightBC            ! right Dirichlet boundary condition value
-real(rk) :: theta              ! conjugate gradient coefficient
-real(rk) :: lambda             ! conjugate gradient coefficient
-real(rk) :: convergence        ! difference between successive iterations
-real(rk) :: tol                ! conjugate gradient convergence tolerance
-real(rk) :: start              ! holds run times
-real(rk) :: finish             ! holds run times
-real(rk) :: startCL            ! start, command line parse
-real(rk) :: endCL              ! end, command line parse
+
+! variables to define the CG solver
+integer  :: cnt                ! number of CG iterations
+real(rk) :: theta              ! CG coefficient
+real(rk) :: lambda             ! CG coefficient
+real(rk) :: convergence        ! difference between CG iterations
+real(rk) :: tol                ! CG convergence tolerance
 real(rk) :: startCG            ! start, CG
 real(rk) :: endCG              ! end, CG
 real(rk) :: m                  ! slope of line
+
+! parallel variables
 integer  :: numprocs           ! number of processors
 integer  :: maxperproc         ! maximum number of elements per processor
 integer  :: rank               ! processor rank
 integer  :: face               ! ID number of interface problem
 integer  :: iter               ! domain decomposition solution iteration counter
-logical  :: exists             ! tests for file existence 
 
 real(rk), dimension(:),    allocatable :: soln     ! global solution vector
 real(rk), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
@@ -59,7 +63,6 @@ real(rk), dimension(:),    allocatable :: rglob  ! global load vector
 real(rk), dimension(:),    allocatable :: a      ! CG solution iterates
 real(rk), dimension(:),    allocatable :: z      ! CG update iterates
 real(rk), dimension(:),    allocatable :: res    ! solution residual
-real(rk), dimension(:),    allocatable :: kelzprev    ! matrix-vector product
 
 k = 1.0        ! thermal conductivity
 source = 10.0  ! heat source
@@ -150,8 +153,6 @@ do iter = 1, 100
     if (AllocateStatus /= 0) STOP "Allocation of z array failed."
     allocate(res(n_nodes), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-    allocate(kelzprev(n_nodes), stat = AllocateStatus)
-    if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
     
     call locationmatrix()                       ! form the location matrix
     call globalload()                           ! form the global load vector
@@ -169,7 +170,7 @@ do iter = 1, 100
     ! save results to the global solution vector
     soln(edges(1, rank):edges(2, rank)) = a
   
-    deallocate(xel, LM, rglob, a, z, res, kelzprev)
+    deallocate(xel, LM, rglob, a, z, res)
   end do
 
 
@@ -196,8 +197,6 @@ do iter = 1, 100
     if (AllocateStatus /= 0) STOP "Allocation of z array failed."
     allocate(res(n_nodes), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-    allocate(kelzprev(n_nodes), stat = AllocateStatus)
-    if (AllocateStatus /= 0) STOP "Allocation of kelzprev array failed."
     
     call locationmatrix()                       ! form the location matrix
     call globalload()                           ! form the global load vector
@@ -212,7 +211,7 @@ do iter = 1, 100
     BCvals(2, face) = a(n_en)
     BCvals(1, face + 1) = a(n_en) ! assumes you have only one element on either side
   
-    deallocate(xel, LM, rglob, a, z, res, kelzprev)
+    deallocate(xel, LM, rglob, a, z, res)
   end do
 
 
@@ -304,14 +303,11 @@ subroutine conjugategradientsmall()
   
   cnt = 0
   do while (convergence > tol)
-    !kelzprev = sparse_mult(kel, LM, z) 
-
     res      = rglob - sparse_mult(kel, LM, a)
     !print *, 'second residual: ', res
     theta    = sparse_mult_dot(kel, LM, z, res) / sparse_mult_dot(kel, LM, z, z)
     !print *, 'theta: ', theta
 
-    !theta    = dotprod(res, kelzprev) / dotprod(z, kelzprev)
     z        = res - theta * z
     lambda   = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z)
     !lambda   = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
@@ -359,14 +355,10 @@ subroutine conjugategradient()
   
   cnt = 0
   do while (convergence > tol)
-    !kelzprev = sparse_mult(kel, LM, z) 
-
     res      = rglob - sparse_mult(kel, LM, a)
     !print *, 'second residual: ', res
     theta    = sparse_mult_dot(kel, LM, z, res) / sparse_mult_dot(kel, LM, z, z)
     !print *, 'theta: ', theta
-
-    !theta    = dotprod(res, kelzprev) / dotprod(z, kelzprev)
     z        = res - theta * z
     lambda   = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z)
     !lambda   = dotprod(z, res) / dotprod(z, sparse_mult(kel, LM, z))
