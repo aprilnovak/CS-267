@@ -43,6 +43,7 @@ integer  :: maxperproc         ! maximum number of elements per processor
 integer  :: rank               ! processor rank
 integer  :: face               ! ID number of interface problem
 integer  :: iter               ! domain decomposition solution iteration counter
+integer  :: sidenum            ! half-thickness of interface layer
 
 real(rk), dimension(:),    allocatable :: soln     ! global solution vector
 real(rk), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
@@ -67,6 +68,7 @@ real(rk), dimension(:),    allocatable :: res      ! solution residual
 k = 1.0        ! thermal conductivity
 source = 10.0  ! heat source
 tol = 0.0001   ! CG convergence tolerance
+sidenum = 2    ! 2 elements on each side of the layers
 
 call cpu_time(start)
 order = 1 ! only works for linear elements
@@ -122,14 +124,14 @@ do iter = 1, 100
   
     ! deallocate memory before next processor begins its solve
     deallocate(xel, LM, rglob, a, z, res)
-  end do
+  end do ! ends solution of all decomposed domains
 
   ! solve the numprocs - 1 interface problems
   do face = 1, numprocs - 1
-    n_el = 2 ! one element on each side of the nodes between domains
+    n_el = sidenum * 2
     n_nodes = n_el * n_en - (n_el - 1)
    
-    allocate(xel(numnodes(rank)), stat = AllocateStatus)
+    allocate(xel(n_nodes), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
     allocate(LM(n_en, n_el), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
@@ -142,23 +144,23 @@ do iter = 1, 100
     allocate(res(n_nodes), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocation of res array failed."
     
-    xel = x((edges(2, face) - 1):(edges(2, face) + 1))
+    xel = x((edges(2, face) - sidenum):(edges(2, face) + sidenum))
     
     call locationmatrix()                       ! form the location matrix
     call globalload()                           ! form the global load vector
     BCs = (/1, n_nodes/)                        ! assign BCs on ends of domain 
     
-    rglob(1) = soln(edges(2, face) - 1)
-    rglob(n_nodes) = soln(edges(2, face) + 1)
+    rglob(1) = soln(edges(2, face) - sidenum)
+    rglob(n_nodes) = soln(edges(2, face) + sidenum)
     
-    call conjugategradient(soln(edges(2, face) + 1), soln(edges(2, face) - 1))
+    call conjugategradient(soln(edges(2, face) + sidenum), soln(edges(2, face) - sidenum))
     
     ! update the BCvals matrix
-    BCvals(2, face) = a(n_en * n_el / 2)
-    BCvals(1, face + 1) = a(n_en * n_el / 2)
+    BCvals(2, face) = a(n_en * sidenum)
+    BCvals(1, face + 1) = a(n_en * sidenum)
   
     deallocate(xel, LM, rglob, a, z, res)
-  end do
+  end do ! ends solution of all interface problems
   
   if (iter == 1) then
     ! write to an output file. If this file exists, it will be re-written.
@@ -173,7 +175,7 @@ do iter = 1, 100
     form='formatted', position='append')
   write(2, *), n_el, finish - start, endCG - startCG, cnt
 
-end do
+end do ! ends outermost domain decomposition loop
 
 call cpu_time(finish)
 print *, 'runtime: ', finish - start
