@@ -4,6 +4,7 @@
 PROGRAM main
 
 implicit none
+include 'mpif.h'
 
 ! define double precision with 8 digits of accuracy
 ! and an exponent range of +- 30
@@ -72,15 +73,18 @@ real(rk), dimension(:),    allocatable :: a        ! CG solution iterates
 real(rk), dimension(:),    allocatable :: z        ! CG update iterates
 real(rk), dimension(:),    allocatable :: res      ! solution residual
 
+integer :: ierr
+
 k = 1.0        ! thermal conductivity
 source = 10.0  ! heat source
 tol = 0.0001   ! CG convergence tolerance
 ddtol = 0.0005 ! domain decomposition loop tolerance
 sidenum = 1    ! elements on each side of the layers
+order = 1      ! only works for linear elements
 
 call cpu_time(start)
-order = 1 ! only works for linear elements
 
+! initialize variables that are known to all MPI processes
 call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
 call initialize(h, x, n_en, n_el, order, n_nodes) ! initialize problem vars
 call quadrature(order, n_qp)                      ! initialize quadrature
@@ -92,8 +96,20 @@ allocate(soln(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of soln array failed."
 soln = 0.0
 
-numprocs = 4
+! initialize the parallel MPI environment
+call mpi_init(ierr)
+
+! determine the total number of tasks available
+call mpi_comm_size(mpi_comm_world, numprocs, ierr)
+print *, 'Solving the heat equation with numprocs: ', numprocs
+
+! determine the rank of the calling process
+call mpi_comm_rank(mpi_comm_world, rank, ierr)
+
+! each process has their own copy of this DD information
 call initializedecomp()                   ! initialize domain decomposition
+
+call mpi_finalize(ierr)
 
 ddcnt = 0
 do while (itererror > ddtol)
