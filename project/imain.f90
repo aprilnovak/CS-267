@@ -47,36 +47,36 @@ integer  :: sidenum            ! half-thickness of interface layer
 integer  :: leftnode           ! node number at left of interface layer
 integer  :: rightnode          ! node number at right of interface layer
 integer  :: ddcnt              ! domain decomposition counter
-real(8) :: itererror          ! whole-loop iteration error
-real(8) :: ddtol              ! domain decomposition loop tolerance
+real(8) :: itererror           ! whole-loop iteration error
+real(8) :: ddtol               ! domain decomposition loop tolerance
+integer :: ierr                ! holds error state for MPI calls
 
-real(8), dimension(:),    allocatable :: prev     ! previous interface values
-real(8), dimension(:),    allocatable :: soln     ! global solution vector
+integer :: stat(MPI_STATUS_SIZE)                   ! MPI receive status
+
+
+
+integer, dimension(:), allocatable :: recv_displs ! displacement of each domain
+real(8), dimension(:), allocatable :: prev        ! previous interface values
+real(8), dimension(:), allocatable :: soln        ! global solution vector
+real(8), dimension(:), allocatable :: xel         ! coordinates in each domain
+integer, dimension(:), allocatable :: numnodes    ! number of nodes in each domain
+integer, dimension(:), allocatable :: elems       ! n_el in each domain
+integer, dimension(2)              :: BCs         ! boundary condition nodes
+real(8), dimension(:), allocatable :: qp          ! quadrature points
+real(8), dimension(:), allocatable :: wt          ! quadrature weights
+real(8), dimension(:), allocatable :: x           ! coordinates of the nodes
+real(8), dimension(:), allocatable :: rel         ! elemental load vector
+real(8), dimension(:), allocatable :: rglob       ! global load vector
+real(8), dimension(:), allocatable :: a           ! CG solution iterates
+real(8), dimension(:), allocatable :: z           ! CG update iterates
+real(8), dimension(:), allocatable :: res         ! solution residual
+
 real(8), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
-real(8), dimension(:),    allocatable :: xel      ! coordinates in each domain
-integer,  dimension(:),    allocatable :: numnodes ! number of nodes in each domain
-integer,  dimension(:),    allocatable :: elems    ! n_el in each domain
-integer,  dimension(:, :), allocatable :: edges    ! nodes on edge of each domain
-integer,  dimension(:, :), allocatable :: LM       ! location matrix
-integer,  dimension(2)                 :: BCs      ! boundary condition nodes
-real(8), dimension(:),    allocatable :: qp       ! quadrature points
-real(8), dimension(:),    allocatable :: wt       ! quadrature weights
-real(8), dimension(:),    allocatable :: x        ! coordinates of the nodes
 real(8), dimension(:, :), allocatable :: kel      ! elemental stiffness matrix
-real(8), dimension(:),    allocatable :: rel      ! elemental load vector
 real(8), dimension(:, :), allocatable :: phi      ! shape functions
 real(8), dimension(:, :), allocatable :: dphi     ! shape function derivatives
-real(8), dimension(:),    allocatable :: rglob    ! global load vector
-real(8), dimension(:),    allocatable :: a        ! CG solution iterates
-real(8), dimension(:),    allocatable :: z        ! CG update iterates
-real(8), dimension(:),    allocatable :: res      ! solution residual
-
-integer :: ierr
-integer :: stat(MPI_STATUS_SIZE)
-integer, dimension(:), allocatable :: recv_nums ! number of points to receive from each process
-integer, dimension(:), allocatable :: recv_displs ! displacement of each submission
-real(8), dimension(:),    allocatable :: soln_duplicated     ! global solution vector with duplicated nodes
-real(8), dimension(3) :: vec1, vec2
+integer, dimension(:, :), allocatable :: edges    ! nodes on edge of each domain
+integer, dimension(:, :), allocatable :: LM       ! location matrix
 
 k = 1.0        ! thermal conductivity
 source = 10.0  ! heat source
@@ -100,19 +100,13 @@ n_el_global = n_el
 ! initialize the parallel MPI environment
 call mpi_init(ierr)
 
-! determine the total number of tasks available
 call mpi_comm_size(mpi_comm_world, numprocs, ierr)
-
-! determine the rank of the calling process
 call mpi_comm_rank(mpi_comm_world, rank, ierr)
 
 ! only the rank 0 process knows about the whole solution vector
 if (rank == 0) then
   allocate(soln(n_nodes_global), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of soln array failed."
-  soln = 0.0
-  allocate(soln_duplicated(n_nodes_global + (numprocs - 1)), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of soln_duplicated array failed."
   soln = 0.0
 end if
 
@@ -121,64 +115,50 @@ end if
 ! process will collect all of the information
 call initializedecomp()                   ! initialize domain decomposition
 
+! save values to be used by each processor - these are private for each
+n_el = elems(rank + 1)
+n_nodes = numnodes(rank + 1)
+
+allocate(xel(numnodes(rank + 1)), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
+allocate(LM(n_en, n_el), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
+allocate(rglob(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
+allocate(a(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of a array failed."
+allocate(z(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of z array failed."
+allocate(res(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of res array failed."
+
+xel = x(edges(1, rank + 1):edges(2, rank + 1)) ! domain sizes don't change
+BCs = (/ 1, n_nodes /)                         ! BCs are always applied on end nodes
+call locationmatrix()                          ! form the location matrix
+call globalload()                              ! form the global load vector
 
 ddcnt = 0
 !do while (itererror > ddtol)
   ! save the previous values of the interface BCs
   prev = BCvals(1, 2:numprocs)
 
-  !do rank = 1, numprocs ! solve over each domain
-    n_el = elems(rank + 1)
-    n_nodes = numnodes(rank + 1)
-    
-    allocate(xel(numnodes(rank + 1)), stat = AllocateStatus)
-    if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
-    allocate(LM(n_en, n_el), stat = AllocateStatus)
-    if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
-    allocate(rglob(n_nodes), stat = AllocateStatus)
-    if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
-    allocate(a(n_nodes), stat = AllocateStatus)
-    if (AllocateStatus /= 0) STOP "Allocation of a array failed."
-    allocate(z(n_nodes), stat = AllocateStatus)
-    if (AllocateStatus /= 0) STOP "Allocation of z array failed."
-    allocate(res(n_nodes), stat = AllocateStatus)
-    if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-    
-    xel = x(edges(1, rank + 1):edges(2, rank + 1))
-    
-    print *, 'rank ', rank, 'solving ', n_el, ' elements on ', x(edges(1, rank + 1)), ' to ', x(edges(2, rank + 1))
+  ! each processor solves for its domain ------------------------------------------
+  rglob(BCs(1)) = BCvals(1, rank + 1)
+  rglob(BCs(2)) = BCvals(2, rank + 1)   
+  
+  ! perform CG solve 
+  call conjugategradient(BCvals(2, rank + 1), BCvals(1, rank + 1))
+  
+  ! -------------------------------------------------------------------------------
 
-    call locationmatrix()                       ! form the location matrix
-    call globalload()                           ! form the global load vector
-    
-    BCs = (/ 1, n_nodes /)                      ! BCs are always applied on end nodes
-    
-    rglob(BCs(1)) = BCvals(1, rank + 1)
-    rglob(BCs(2)) = BCvals(2, rank + 1)   
-   
-    ! perform CG solve 
-    call conjugategradient(BCvals(2, rank + 1), BCvals(1, rank + 1))
-    
-    ! save results to the global solution vector
-!    soln(edges(1, rank):edges(2, rank)) = a
+  ! each processor sends its solution to the rank 0 process
+  call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
+                   soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, & 
+                   0, mpi_comm_world, ierr)
 
-
-    print *, 'Rank: ', rank, 'length of my solution: ', size(a)
-    
-    if (rank == 0) then
-      print *, 'length of duplicated solution: ', size(soln_duplicated)
-      print *, 'length of compressed solution: ', size(soln)
-    end if
-
-
-     call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
-                      soln(1:(n_nodes_global - 1)), (/33, 33, 34/), (/0, 33, 66/), mpi_real8, & 
-                      0, mpi_comm_world, ierr)
-
-     if (rank == 0) then
-       soln(n_nodes_global) = rightBC
-       print *, soln
-     end if
+   if (rank == 0) then
+     soln(n_nodes_global) = rightBC
+   end if
 
 
 
@@ -186,10 +166,6 @@ ddcnt = 0
 
  
 
-    ! deallocate memory before next processor begins its solve
-    deallocate(xel, LM, rglob, a, z, res)
-  !end do ! ends solution of all decomposed domains
-call mpi_finalize(ierr)
 
   ! solve the numprocs - 1 interface problems
 !  do face = 1, numprocs - 1
@@ -234,14 +210,14 @@ call mpi_finalize(ierr)
 !    itererror = itererror + abs(BCvals(1, i + 1) - prev(i))
 !  end do
   
-!  if (ddcnt == 0) then
-!    ! write to an output file. If this file exists, it will be re-written.
-!    open(1, file='output.txt', iostat=AllocateStatus, status="replace")
-!    if (AllocateStatus /= 0) STOP "output.txt file opening failed."
-!  end if
-!
-!  write(1, *) soln(:)
-! 
+  if (rank == 0) then
+    if (ddcnt == 0) then
+      ! write to an output file. If this file exists, it will be re-written.
+      open(1, file='output.txt', iostat=AllocateStatus, status="replace")
+      if (AllocateStatus /= 0) STOP "output.txt file opening failed."
+    end if
+    write(1, *) soln(:)
+  end if
 !  open(2, file='timing.txt', status='old', action='write', &
 !    form='formatted', position='append')
 !  write(2, *), n_el, finish - start, endCG - startCG, cnt
@@ -249,6 +225,8 @@ call mpi_finalize(ierr)
 ddcnt = ddcnt + 1
 !end do ! ends outermost domain decomposition loop
 
+deallocate(xel, LM, rglob, a, z, res)
+call mpi_finalize(ierr)
 
 
 call cpu_time(finish)
@@ -257,7 +235,7 @@ print *, 'DD iterations: ', ddcnt
 
 ! deallocate variables shared by all processors
 deallocate(qp, wt, x, kel, rel, phi, dphi)
-deallocate(elems, edges, BCvals, prev, recv_nums, recv_displs)
+deallocate(elems, edges, BCvals, prev, recv_displs)
 
 
 
@@ -321,20 +299,12 @@ subroutine initializedecomp()
 
   ! initialize the number of things to be received from each process for mpi_gatherv
   ! and the displacements at which to place those entries in the glboal soln vector
-  allocate(recv_nums(numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of recv_nums array failed."
   allocate(recv_displs(numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of recv_displs array failed."
   
-  do i = 1, numprocs
-    recv_nums(i) = elems(i)
-  end do
-  recv_nums(numprocs) = recv_nums(numprocs) + 1
-  
-  
   recv_displs = 0
   do i = 2, numprocs
-    recv_displs(i) = recv_displs(i - 1) + recv_nums(i - 1)
+    recv_displs(i) = recv_displs(i - 1) + elems(i - 1)
   end do
 end subroutine initializedecomp
 
