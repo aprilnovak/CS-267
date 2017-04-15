@@ -143,8 +143,8 @@ call locationmatrix()                          ! form the location matrix
 call globalload()                              ! form the global load vector
 
 ddcnt = 0
-do while (ddcnt < 5)
-!do while (itererror > ddtol)
+!do while (ddcnt < 5)
+do while (itererror > ddtol)
   ! save the previous values of the interface BCs
   prev = BCvals(1, :)
 
@@ -176,7 +176,10 @@ do while (ddcnt < 5)
       BCvals(1, face + 1) = BCvals(2, face)
     
    end do 
+   print *, 'updated BCs: ', BCvals
   end if
+  
+  call mpi_bcast(BCvals, numprocs * 2, mpi_real8, 0, mpi_comm_world, ierr)
 
   ! compute iteration error to determine whether to continue looping -------------- 
   call mpi_barrier(mpi_comm_world, ierr)
