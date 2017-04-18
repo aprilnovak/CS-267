@@ -72,14 +72,8 @@ real(8), dimension(:), allocatable :: rglob       ! global load vector
 real(8), dimension(:), allocatable :: a           ! CG solution iterates
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
-real(8), dimension(:), allocatable :: rglob_int       ! global load vector
-real(8), dimension(:), allocatable :: xel_int         ! coordinates in each domain
-real(8), dimension(:), allocatable :: a_int           ! CG solution iterates
-real(8), dimension(:), allocatable :: z_int           ! CG update iterates
-real(8), dimension(:), allocatable :: res_int         ! solution residual
-integer, dimension(:, :), allocatable :: LM_int       ! location matrix
-
 real(8), dimension(:),    allocatable :: BClocals   ! vector of BCs for interface problem
+
 
 real(8), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
 real(8), dimension(:, :), allocatable :: kel      ! elemental stiffness matrix
@@ -151,7 +145,7 @@ call locationmatrix()                          ! form the location matrix
 call globalload()                              ! form the global load vector
 
 ddcnt = 0
-!do while (itererror > ddtol)
+do while (itererror > ddtol)
   ! save the previous values of the interface BCs
   prev = BCvals(1, :)
 
@@ -159,59 +153,52 @@ ddcnt = 0
   rglob(BCs(1)) = BCvals(1, rank + 1)
   rglob(BCs(2)) = BCvals(2, rank + 1)   
   
-  ! perform CG solve 
   call conjugategradient(BCvals(2, rank + 1), BCvals(1, rank + 1))
   
   ! each processor sends its boundary values to the rank 0 process ----------------
   call mpi_barrier(mpi_comm_world, ierr)
-  !call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
-  !                 soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, & 
-  !                 0, mpi_comm_world, ierr)
 
-  call mpi_gather((/ a(2), a(-2) /), 2, mpi_real8, &
-                  BClocals, 2, mpi_real8, mpi_comm_world, ierr)
+  call mpi_gather((/ a(2), a(n_nodes - 1) /), 2, mpi_real8, &
+                  BClocals, 2, mpi_real8, 0, mpi_comm_world, ierr)
 
   ! rank 0 process solves the interface problems ---------------------------------- 
   if (rank == 0) then
-    !soln(n_nodes_global) = rightBC
-    
-    !do face = 1, numprocs - 1
-    !  leftnode  = edges(2, face) - 1
-    !  rightnode = edges(2, face) + 1
-      
-      ! update the BCvals matrix
-    !  BCvals(2, face) = (rel(2) + rel(1) - & 
-    !                    kel(2, 1) * soln(leftnode) - kel(1, 2) * soln(rightnode)) / & 
-    !                    (kel(2, 2) + kel(1, 1))
-    !  BCvals(1, face + 1) = BCvals(2, face)
-    
-   !end do 
-   print *, BClocals
+    do face = 1, numprocs - 1
+      BCvals(2, face) = (rel(2) + rel(1) - kel(2, 1) * BClocals(face * 2) &
+                        - kel(1, 2) * BClocals(face * 2 + 1)) / (kel(2, 2) + kel(1, 1))
+      BCvals(1, face + 1) = BCvals(2, face)
+   end do 
   end if
   
-  !call mpi_bcast(BCvals, numprocs * 2, mpi_real8, 0, mpi_comm_world, ierr)
+  call mpi_bcast(BCvals, numprocs * 2, mpi_real8, 0, mpi_comm_world, ierr)
 
   ! compute iteration error to determine whether to continue looping -------------- 
   call mpi_barrier(mpi_comm_world, ierr)
 
-  !call mpi_allreduce(abs(BCvals(1, rank) - prev(rank)), itererror, 1, mpi_real8, mpi_sum, &
-  !           mpi_comm_world, ierr)  
+  call mpi_allreduce(abs(BCvals(1, rank) - prev(rank)), itererror, 1, mpi_real8, mpi_sum, &
+             mpi_comm_world, ierr)  
   
-  ! write results to output file --------------------------------------------------
-  !if (rank == 0) then
-  !  if (ddcnt == 0) then
-  !    ! write to an output file. If this file exists, it will be re-written.
-  !    open(1, file='output.txt', iostat=AllocateStatus, status="replace")
-  !    if (AllocateStatus /= 0) STOP "output.txt file opening failed."
-  !  end if
-  !  write(1, *) soln(:)
-  !end if
-   
   call mpi_barrier(mpi_comm_world, ierr)
   ddcnt = ddcnt + 1
-!end do ! ends outermost domain decomposition loop
+end do ! ends outermost domain decomposition loop
 
+! each processor broadcasts its final solution to the rank 0 process --------------
+call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
+                    soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, &
+                    0, mpi_comm_world, ierr)
 
+! write results to output file ----------------------------------------------------
+
+if (rank == 0) then
+  soln(n_nodes_global) = rightBC
+  
+  ! write to an output file. If this file exists, it will be re-written.
+  open(1, file='output.txt', iostat=AllocateStatus, status="replace")
+  if (AllocateStatus /= 0) STOP "output.txt file opening failed."
+  write(1, *) soln(:)
+end if
+
+! final timing results ----------------------------------------------------------
 if (rank == 0) then
   call cpu_time(finish)
   print *, 'P: ', numprocs, 'runtime: ', finish - start
@@ -222,7 +209,7 @@ call mpi_finalize(ierr)
 
 ! deallocate variables shared by all processors
 deallocate(qp, wt, x, kel, rel, phi, dphi)
-deallocate(elems, edges, BCvals, prev, recv_displs)
+deallocate(elems, edges, BCvals, prev, recv_displs, BClocals)
 
 
 
@@ -307,15 +294,6 @@ subroutine globalload()
   end do
 end subroutine globalload
 
-subroutine globalload_int()
-  implicit none
-  rglob_int = 0.0
-  do q = 1, n_el
-    do i = 1, n_en
-      rglob_int(LM(i, q)) = rglob_int(LM(i, q)) + rel(i)
-    end do
-  end do
-end subroutine globalload_int
 
 subroutine elementalmatrices()
   implicit none
@@ -336,43 +314,6 @@ subroutine elementalmatrices()
     end do
   end do
 end subroutine elementalmatrices
-
-subroutine conjugategradient_int(rightBC, leftBC)
-  implicit none
-  real(8), intent(in) :: rightBC, leftBC
-
-  ! initial guess is a straight line between the two endpoints
-  m           = (rightBC - leftBC) / (xel_int(n_nodes) - xel_int(1))
-  a_int           = m * (xel_int - xel_int(1)) + leftBC
-  res_int         = rglob_int - sparse_mult(kel, LM_int, a_int)
-  z_int           = res_int
-  lambda          = dotprod(z_int, res_int)/dotprod(z_int, sparse_mult(kel, LM_int, z_int))
-  a_int           = a_int + lambda * z_int
-  res_int         = rglob_int - sparse_mult(kel, LM_int, a_int)
-  convergence = 0.0
- 
-  ! convergence is assessed by the magnitude of the residual
-  do i = 1, n_nodes
-    convergence = convergence + abs(res_int(i))
-  end do
-  
-  cnt = 0
-  do while (convergence > tol)
-    theta    = sparse_mult_dot(kel, LM_int, z_int, res_int) / sparse_mult_dot(kel, LM_int, z_int, z_int)
-    z_int        = res_int - theta * z_int
-    lambda   = dotprod(z_int, res_int) / sparse_mult_dot(kel, LM_int, z_int, z_int)
-    a_int        = a_int + lambda * z_int
-    res_int      = rglob_int - sparse_mult(kel, LM_int, a_int)
-    
-    convergence = 0.0
-    do i = 1, n_nodes
-      convergence = convergence + abs(res_int(i))
-    end do
-    
-  cnt = cnt + 1
-  end do
-end subroutine conjugategradient_int
-
 
 
 subroutine conjugategradient(rightBC, leftBC)
@@ -503,19 +444,6 @@ subroutine locationmatrix()
     end do
   end do
 end subroutine locationmatrix
-
-subroutine locationmatrix_int()
-  ! forms the location matrix, which is global in the calling program
-  ! fills column-by-column (each column pertains to an element)
-  implicit none
-  integer :: i, j       ! looping variables
-  
-  do j = 1, n_el
-    do i = 1, n_en
-      LM_int(i, j) = (j - 1) * (n_en - 1) + i
-    end do
-  end do
-end subroutine locationmatrix_int
 
 subroutine phi_val(order, qp)
 ! populate phi and dphi, which are global to the calling program
