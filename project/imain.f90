@@ -1,5 +1,7 @@
 ! program to solve the heat equation (Dirichlet boundary conditions only)
-! using domain decomposition.
+! using domain decomposition. This version has each process send its entire
+! solution to the rank 0 process, so the iteration-evolution of the solution
+! can be plotted with this version.
 
 PROGRAM main
 
@@ -69,12 +71,6 @@ real(8), dimension(:), allocatable :: rglob       ! global load vector
 real(8), dimension(:), allocatable :: a           ! CG solution iterates
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
-real(8), dimension(:), allocatable :: rglob_int       ! global load vector
-real(8), dimension(:), allocatable :: xel_int         ! coordinates in each domain
-real(8), dimension(:), allocatable :: a_int           ! CG solution iterates
-real(8), dimension(:), allocatable :: z_int           ! CG update iterates
-real(8), dimension(:), allocatable :: res_int         ! solution residual
-integer, dimension(:, :), allocatable :: LM_int       ! location matrix
 
 real(8), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
 real(8), dimension(:, :), allocatable :: kel      ! elemental stiffness matrix
@@ -304,16 +300,6 @@ subroutine globalload()
   end do
 end subroutine globalload
 
-subroutine globalload_int()
-  implicit none
-  rglob_int = 0.0
-  do q = 1, n_el
-    do i = 1, n_en
-      rglob_int(LM(i, q)) = rglob_int(LM(i, q)) + rel(i)
-    end do
-  end do
-end subroutine globalload_int
-
 subroutine elementalmatrices()
   implicit none
 
@@ -333,44 +319,6 @@ subroutine elementalmatrices()
     end do
   end do
 end subroutine elementalmatrices
-
-subroutine conjugategradient_int(rightBC, leftBC)
-  implicit none
-  real(8), intent(in) :: rightBC, leftBC
-
-  ! initial guess is a straight line between the two endpoints
-  m           = (rightBC - leftBC) / (xel_int(n_nodes) - xel_int(1))
-  a_int           = m * (xel_int - xel_int(1)) + leftBC
-  res_int         = rglob_int - sparse_mult(kel, LM_int, a_int)
-  z_int           = res_int
-  lambda          = dotprod(z_int, res_int)/dotprod(z_int, sparse_mult(kel, LM_int, z_int))
-  a_int           = a_int + lambda * z_int
-  res_int         = rglob_int - sparse_mult(kel, LM_int, a_int)
-  convergence = 0.0
- 
-  ! convergence is assessed by the magnitude of the residual
-  do i = 1, n_nodes
-    convergence = convergence + abs(res_int(i))
-  end do
-  
-  cnt = 0
-  do while (convergence > tol)
-    theta    = sparse_mult_dot(kel, LM_int, z_int, res_int) / sparse_mult_dot(kel, LM_int, z_int, z_int)
-    z_int        = res_int - theta * z_int
-    lambda   = dotprod(z_int, res_int) / sparse_mult_dot(kel, LM_int, z_int, z_int)
-    a_int        = a_int + lambda * z_int
-    res_int      = rglob_int - sparse_mult(kel, LM_int, a_int)
-    
-    convergence = 0.0
-    do i = 1, n_nodes
-      convergence = convergence + abs(res_int(i))
-    end do
-    
-  cnt = cnt + 1
-  end do
-end subroutine conjugategradient_int
-
-
 
 subroutine conjugategradient(rightBC, leftBC)
   implicit none
@@ -501,18 +449,6 @@ subroutine locationmatrix()
   end do
 end subroutine locationmatrix
 
-subroutine locationmatrix_int()
-  ! forms the location matrix, which is global in the calling program
-  ! fills column-by-column (each column pertains to an element)
-  implicit none
-  integer :: i, j       ! looping variables
-  
-  do j = 1, n_el
-    do i = 1, n_en
-      LM_int(i, j) = (j - 1) * (n_en - 1) + i
-    end do
-  end do
-end subroutine locationmatrix_int
 
 subroutine phi_val(order, qp)
 ! populate phi and dphi, which are global to the calling program
