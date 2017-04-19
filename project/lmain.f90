@@ -68,9 +68,8 @@ real(8), dimension(:), allocatable :: rglob       ! global load vector
 real(8), dimension(:), allocatable :: a           ! CG solution iterates
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
-real(8), dimension(:), allocatable :: BClocals    ! vector of BCs for interface problem
 
-real(8), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
+real(8), dimension(2)                 :: BCvals   ! values of BCs for each domain
 real(8), dimension(:, :), allocatable :: kel      ! elemental stiffness matrix
 real(8), dimension(:, :), allocatable :: phi      ! shape functions
 real(8), dimension(:, :), allocatable :: dphi     ! shape function derivatives
@@ -105,10 +104,6 @@ if (rank == 0) then
   allocate(soln(n_nodes_global), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of soln array failed."
   soln = 0.0
-  
-  ! only rank 0 knows about the BClocals vector
-  allocate(BClocals(numprocs * 2), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of BClocals array failed."
 end if
 
 ! each process has their own copy of this DD information
@@ -120,14 +115,22 @@ allocate(elems(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
 allocate(edges(2, numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
-allocate(BCvals(2, numprocs), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of BCvals array failed."
 allocate(recv_displs(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of recv_displs array failed."
 allocate(prev(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of prev array failed."
   
 call initializedecomp()                   ! initialize domain decomposition
+
+! assign the initial boundary conditions given the rank of the calling process
+m = (rightBC - leftBC) / length
+
+BCvals(1) = m * x(edges(1, rank + 1)) + leftBC
+BCvals(2) = m * x(edges(2, rank + 1)) + leftBC
+
+print *, 'rank: ', rank, 'BCvals: ', BCvals
+
+
 
 ! save values to be used by each processor - these are private for each
 n_el = elems(rank + 1)
@@ -152,58 +155,58 @@ call locationmatrix()                          ! form the location matrix
 call globalload()                              ! form the global load vector
 
 ddcnt = 0
-do while (itererror > ddtol)
+!do while (itererror > ddtol)
   ! save the previous values of the interface BCs
-  prev = BCvals(1, :)
+  prev = BCvals
 
   ! each processor solves for its domain ------------------------------------------
-  rglob(BCs(1)) = BCvals(1, rank + 1)
-  rglob(BCs(2)) = BCvals(2, rank + 1)   
+  rglob(BCs(1)) = BCvals(1)
+  rglob(BCs(2)) = BCvals(2)   
   
-  call conjugategradient(BCvals(2, rank + 1), BCvals(1, rank + 1))
+  call conjugategradient(BCvals(2), BCvals(1))
   
   ! each processor sends its boundary values to the rank 0 process ----------------
   call mpi_barrier(mpi_comm_world, ierr)
 
-  call mpi_gather((/ a(2), a(n_nodes - 1) /), 2, mpi_real8, &
-                  BClocals, 2, mpi_real8, 0, mpi_comm_world, ierr)
+  !call mpi_gather((/ a(2), a(n_nodes - 1) /), 2, mpi_real8, &
+  !                BClocals, 2, mpi_real8, 0, mpi_comm_world, ierr)
 
   ! rank 0 process solves the interface problems ---------------------------------- 
-  if (rank == 0) then
-    do face = 1, numprocs - 1
-      BCvals(2, face) = (rel(2) + rel(1) - kel(2, 1) * BClocals(face * 2) &
-                        - kel(1, 2) * BClocals(face * 2 + 1)) / (kel(2, 2) + kel(1, 1))
-      BCvals(1, face + 1) = BCvals(2, face)
-   end do 
-  end if
+  !if (rank == 0) then
+  !  do face = 1, numprocs - 1
+  !    BCvals(2, face) = (rel(2) + rel(1) - kel(2, 1) * BClocals(face * 2) &
+  !                      - kel(1, 2) * BClocals(face * 2 + 1)) / (kel(2, 2) + kel(1, 1))
+  !    BCvals(1, face + 1) = BCvals(2, face)
+  ! end do 
+  !end if
   
-  call mpi_bcast(BCvals, numprocs * 2, mpi_real8, 0, mpi_comm_world, ierr)
+  !call mpi_bcast(BCvals, numprocs * 2, mpi_real8, 0, mpi_comm_world, ierr)
 
   ! compute iteration error to determine whether to continue looping -------------- 
-  call mpi_barrier(mpi_comm_world, ierr)
+  !call mpi_barrier(mpi_comm_world, ierr)
 
-  call mpi_allreduce(abs(BCvals(1, rank + 1) - prev(rank + 1)), itererror, 1, mpi_real8, mpi_sum, &
-             mpi_comm_world, ierr)  
+  !call mpi_allreduce(abs(BCvals(1, rank + 1) - prev(rank + 1)), itererror, 1, mpi_real8, mpi_sum, &
+  !           mpi_comm_world, ierr)  
   
-  call mpi_barrier(mpi_comm_world, ierr)
+  !call mpi_barrier(mpi_comm_world, ierr)
   ddcnt = ddcnt + 1
-end do ! ends outermost domain decomposition loop
+!end do ! ends outermost domain decomposition loop
 
 ! each processor broadcasts its final solution to the rank 0 process --------------
-call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
-                    soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, &
-                    0, mpi_comm_world, ierr)
+!call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
+!                    soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, &
+!                    0, mpi_comm_world, ierr)
 
 ! write results to output file ----------------------------------------------------
 
-if (rank == 0) then
-  soln(n_nodes_global) = rightBC
+!if (rank == 0) then
+!  soln(n_nodes_global) = rightBC
   
   ! write to an output file. If this file exists, it will be re-written.
-  open(1, file='output.txt', iostat=AllocateStatus, status="replace")
-  if (AllocateStatus /= 0) STOP "output.txt file opening failed."
-  write(1, *) soln(:)
-end if
+!  open(1, file='output.txt', iostat=AllocateStatus, status="replace")
+!  if (AllocateStatus /= 0) STOP "output.txt file opening failed."
+!  write(1, *) soln(:)
+!end if
 
 ! final timing results ----------------------------------------------------------
 if (rank == 0) then
@@ -213,9 +216,9 @@ end if
 
 ! deallocate memory -------------------------------------------------------------
 deallocate(xel, LM, rglob, a, z, res)
-deallocate(numnodes, elems, edges, BCvals, recv_displs, prev)
+deallocate(numnodes, elems, edges, recv_displs, prev)
 
-if (rank == 0) deallocate(soln, BClocals)
+if (rank == 0) deallocate(soln)
 
 call mpi_finalize(ierr)
 
@@ -253,18 +256,6 @@ subroutine initializedecomp()
     edges(:, i) = (/edges(2, i - 1), edges(2, i - 1) + elems(i) * n_en - elems(i) /)
   end do
   
-  ! assign an initial guess to all boundaries, and then assign
-  ! user-defined BCs to the very edge nodes. This initial guess
-  ! is a straight line between the two endpoints
-  m = (rightBC - leftBC) / length
-  BCvals(1, 1) = leftBC
-  BCvals(2, numprocs) = rightBC
-
-  do i = 1, numprocs - 1
-    BCvals(2, i) = m * x(edges(2, i)) + leftBC
-    BCvals(1, i + 1) = BCvals(2, i)
-  end do
-
   ! assign an initial itererror (dummy value to enter the loop)
   itererror = 1
 
