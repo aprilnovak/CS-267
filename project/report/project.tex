@@ -574,5 +574,43 @@ However, compilers in general cannot vectorize code to the full extent possible,
 The Intel compiler provides good vectorization reports when using the {\tt -qopt-report=3} compiler option. 
 
 \section{Parallel Implementation}
-This section discusses parallelization of the serial code developed in the previous section. In general, there are two very different parallelization strategies here - the first involves domain decomposition amongst parallel threads, where each parallel thread then runs a complete FEM solution, with iteration between threads until all threads agree on the values of the solution at the boundaries between the spatial domain allocated to each process. Alternatively, a single FEM problem can be run (with no need to iterate boundary conditions because the domain is not decomposed), and the work for the single FEM solve distributed amongst parallel instances.
+This section discusses parallelization of the serial code developed in the previous section. In general, there are two very different parallelization strategies here - the first involves domain decomposition amongst parallel threads, where each parallel thread then runs a complete FEM solution, with iteration between threads until all threads agree on the values of the solution at the boundaries between the spatial domain allocated to each process. Alternatively, a single FEM problem can be run (with no need to iterate boundary conditions because the domain is not decomposed), and the work for the single FEM solve distributed amongst parallel instances. Domain decomposition is more often used in large applications in practice because the domain may be so large and the problem information (such as discretized material properties, multiple components of solution vectors, etc.) so large that it cannot fit into the memory of a single processor. So, domain decomposition is pursued for this project, with the possibility of using OpenMP within an MPI process to obtain enhanced performance.
+
+The basic domain decomposition algorithm is shown below for a 1-D domain. Each parallel process solves a subregion of the domain, where the union of all of the subregions equals the original domain. To perform this step, boundary conditions must be imposed on all edges of the domain allocated to each process (since the Poisson equation has two derivatives). All locations where boundary conditions are imposed are indicated with vertical red lines. Because the solution is not known a-priori, the boundary conditions on the interior of the domain, between adjacent domains, must be guessed. After each process solves its subregion, there are two possible algorithms for solving the interface problem. First, all of the processes can communicate the values they compute for solutions one element on each side of the domain interfaces to a single process. This process would then solve the interface problem to determine updated guesses for the domain-interface values, and the entire iterative process repeated. This is the procedure that must be used in higher dimensions for unstructured meshes, since the interface problems would not necessarily be decouple as they are in 1-D. The second approach, which can {\it only} be used in the interface problems are decoupled from each other, is for the process to the left of each interface problem to communicate their boundary value to the processor to the right, and then that process solve a single interface problem. This reduces the number of broadcast operations required and also has the potential to reduce overall runtime because 1) each processor at most communicates with two other processors, and 2) a single process does not need to wait for all processes to finish their domain computations. Again, this is only possible if the interface problems are fully decoupled, which is the case for 1-D.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{../figures/1D-dd.png}
+\caption{Basic algorithm for 1-D domain decomposition.}
+\end{figure}
+
+Because it is easier to implement, the first version of this algorithm is implemented such that the rank 0 process solves the interface problem. The high-level pseudo code for this algorithm is as follows. For a single iteration, all processors solve their domains, and then a barrier is required to ensure that they have all completed before broadcasting their boundary values to the rank 0 process. Once the rank 0 process has received all of the boundary information, it solves the {\tt numprocs - 1} interface problems, and updates the domain-domain boundary conditions stored in memory. Then, the rank 0 process broadcasts these updated boundary conditions to all processes. In order to determine if the looping should continue, a reduction operation is performed to collect the relative change in the domain-domain boundary conditions.
+
+\begin{lstlisting}
+do while (iteration_error > tol)
+	! each processor solves for its domain
+
+	call mpi_barrier(mpi_comm_world, ierr)
+	call mpi_gatherv(local_bcs, mpi_real8, interface_bcs, 2, 2, mpi_real8, 0, mpi_comm_world, ierr)
+	
+	! rank 0 process solves the interface problems
+	if (rank == 0) then
+		do interface = 1, numprocs - 1
+			! solve interface problem
+			! update matrix of BCs
+		end do
+	end if
+	
+	call mpi_bcast(local_bcs, numprocs * 2, mpi_real8, mpi_comm_world, ierr)
+	
+	! determine iteration_error
+	call mpi_allreduce(abs(local_bs(1, rank) - previous_bcs(1, rank)), iteration_error, 1, mpi_real8, mpi_comm_world, ierr)
+end do
+\end{lstlisting}
+
+
+
+
+
+
 \end{document}
