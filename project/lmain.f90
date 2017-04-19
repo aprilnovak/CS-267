@@ -53,6 +53,8 @@ real(8) :: itererror           ! whole-loop iteration error
 real(8) :: ddtol               ! domain decomposition loop tolerance
 integer :: ierr                ! holds error state for MPI calls
 
+integer, dimension(mpi_status_size) :: stat ! MPI send/receive status
+
 integer, dimension(:), allocatable :: recv_displs ! displacement of each domain
 real(8), dimension(:), allocatable :: prev        ! previous interface values
 real(8), dimension(:), allocatable :: soln        ! global solution vector
@@ -69,6 +71,7 @@ real(8), dimension(:), allocatable :: a           ! CG solution iterates
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
 
+real(8), dimension(2)                 :: BClocals ! values of BCs for each interface
 real(8), dimension(2)                 :: BCvals   ! values of BCs for each domain
 real(8), dimension(:, :), allocatable :: kel      ! elemental stiffness matrix
 real(8), dimension(:, :), allocatable :: phi      ! shape functions
@@ -107,8 +110,6 @@ if (rank == 0) then
 end if
 
 ! each process has their own copy of this DD information
-! _all_ processors solve a piece of the domain, then the rank 1
-! process will collect all of the information
 allocate(numnodes(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
 allocate(elems(numprocs), stat = AllocateStatus)
@@ -124,13 +125,8 @@ call initializedecomp()                   ! initialize domain decomposition
 
 ! assign the initial boundary conditions given the rank of the calling process
 m = (rightBC - leftBC) / length
-
 BCvals(1) = m * x(edges(1, rank + 1)) + leftBC
 BCvals(2) = m * x(edges(2, rank + 1)) + leftBC
-
-print *, 'rank: ', rank, 'BCvals: ', BCvals
-
-
 
 ! save values to be used by each processor - these are private for each
 n_el = elems(rank + 1)
@@ -150,7 +146,7 @@ allocate(res(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of res array failed."
   
 xel = x(edges(1, rank + 1):edges(2, rank + 1)) ! domain sizes don't change
-BCs = (/ 1, n_nodes /)                         ! BCs are always applied on end nodes
+BCs = (/1, n_nodes/)                           ! BCs are always applied on end nodes
 call locationmatrix()                          ! form the location matrix
 call globalload()                              ! form the global load vector
 
@@ -165,8 +161,24 @@ ddcnt = 0
   
   call conjugategradient(BCvals(2), BCvals(1))
   
-  ! each processor sends its boundary values to the rank 0 process ----------------
-  call mpi_barrier(mpi_comm_world, ierr)
+  ! each processor sends a boundary value to the processor to the right -----------
+
+  if (rank /= numprocs - 1) then ! last processor has no one to send to
+    ! tag of the message is _rank_
+    call mpi_send(a(n_nodes - 1), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
+  end if
+
+  ! processor to the right receives the message
+  if (rank /= 0) then
+    ! tag of the message is rank - 1, since it is the rank of the sending process
+    call mpi_recv(BClocals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
+    ! assign other local boundary condition
+    BClocals(2) = a(2)
+  end if
+
+  ! each processor solves its interface problem
+  if (rank /= 0) then
+  end if
 
   !call mpi_gather((/ a(2), a(n_nodes - 1) /), 2, mpi_real8, &
   !                BClocals, 2, mpi_real8, 0, mpi_comm_world, ierr)
