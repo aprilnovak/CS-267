@@ -72,7 +72,7 @@ real(8), dimension(:), allocatable :: rglob       ! global load vector
 real(8), dimension(:), allocatable :: a           ! CG solution iterates
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
-real(8), dimension(:),    allocatable :: BClocals   ! vector of BCs for interface problem
+real(8), dimension(:), allocatable :: BClocals    ! vector of BCs for interface problem
 
 
 real(8), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
@@ -102,7 +102,6 @@ n_el_global = n_el
 
 ! initialize the parallel MPI environment
 call mpi_init(ierr)
-
 call mpi_comm_size(mpi_comm_world, numprocs, ierr)
 call mpi_comm_rank(mpi_comm_world, rank, ierr)
 
@@ -120,6 +119,19 @@ end if
 ! each process has their own copy of this DD information
 ! _all_ processors solve a piece of the domain, then the rank 1
 ! process will collect all of the information
+allocate(numnodes(numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
+allocate(elems(numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
+allocate(edges(2, numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
+allocate(BCvals(2, numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of BCvals array failed."
+allocate(recv_displs(numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of recv_displs array failed."
+allocate(prev(numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of prev array failed."
+  
 call initializedecomp()                   ! initialize domain decomposition
 
 ! save values to be used by each processor - these are private for each
@@ -138,7 +150,7 @@ allocate(z(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of z array failed."
 allocate(res(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-
+  
 xel = x(edges(1, rank + 1):edges(2, rank + 1)) ! domain sizes don't change
 BCs = (/ 1, n_nodes /)                         ! BCs are always applied on end nodes
 call locationmatrix()                          ! form the location matrix
@@ -204,13 +216,19 @@ if (rank == 0) then
   print *, 'P: ', numprocs, 'runtime: ', finish - start
 end if
 
+! deallocate variables duplicated for each processor
 deallocate(xel, LM, rglob, a, z, res)
+deallocate(numnodes, elems, edges, BCvals, recv_displs, prev)
+
+if (rank == 0) then
+  ! deallocate variables only known to rank 0
+end if
+
 call mpi_finalize(ierr)
 
-! deallocate variables shared by all processors
-deallocate(qp, wt, x, kel, rel, phi, dphi)
-deallocate(elems, edges, BCvals, prev, recv_displs, BClocals)
 
+! deallocate variables allocated before MPI environment initialized
+deallocate(x, qp, wt, phi, dphi, kel, rel)
 
 
 
@@ -220,15 +238,6 @@ CONTAINS ! define all internal procedures
 subroutine initializedecomp()
   implicit none
 
-  allocate(numnodes(numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
-  allocate(elems(numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
-  allocate(edges(2, numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
-  allocate(BCvals(2, numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of BCvals array failed."
-  
   ! distribute the elements among the processors 
   maxperproc = (n_el + numprocs - 1) / numprocs
   elems = maxperproc
@@ -265,17 +274,9 @@ subroutine initializedecomp()
     BCvals(1, i + 1) = BCvals(2, i)
   end do
 
-  allocate(prev(numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of prev array failed."
-  
   ! assign an initial itererror (dummy value to enter the loop)
   itererror = 1
 
-  ! initialize the number of things to be received from each process for mpi_gatherv
-  ! and the displacements at which to place those entries in the glboal soln vector
-  allocate(recv_displs(numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of recv_displs array failed."
-  
   recv_displs = 0
   do i = 2, numprocs
     recv_displs(i) = recv_displs(i - 1) + elems(i - 1)
