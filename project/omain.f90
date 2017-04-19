@@ -176,9 +176,13 @@ BCs = (/1, n_nodes/)                           ! BCs are always applied on end n
 call locationmatrix()                          ! form the location matrix
 call globalload()                              ! form the global load vector
 
+! initial guess is a straight line between the two endpoints
+m = (BCvals(2) - BCvals(1)) / (xel(n_nodes) - xel(1))
+a = m * (xel - xel(1)) + BCvals(1)
+
+
 ddcnt = 0
 do while (itererror > ddtol)
-!do while (ddcnt < 5)
   ! save the prev1ious values of the interface BCs
   prev1 = BCvals
 
@@ -186,7 +190,7 @@ do while (itererror > ddtol)
   rglob(BCs(1)) = BCvals(1)
   rglob(BCs(2)) = BCvals(2)   
   
-  call conjugategradient(BCvals(2), BCvals(1))
+  call conjugategradient(BCvals(2), BCvals(1), xel, a)
   
   ! each processor sends a boundary value to the processor to the right -----------
   if (rank /= numprocs - 1) then
@@ -321,26 +325,21 @@ subroutine initializedecomp2()
     if (i == numprocs + 1) i = 2
   end do
  
-  if (rank == 0) print *, elems2
- 
   ! assign the numbers of nodes in each domain 
-  !do j = 1, numprocs
-  !  numnodes1(j) = elems1(j) * n_en - (elems1(j) - 1)
-  !end do
+  do j = 1, numprocs
+    numnodes2(j) = elems2(j) * n_en - (elems2(j) - 1)
+  end do
   
   ! assign the global node numbers that correspond to the edges1 of each domain
-  !edges1(:, 1) = (/1, elems1(1) * n_en - (elems1(1) - 1)/)
-  !do i = 2, numprocs
-  !  edges1(:, i) = (/edges1(2, i - 1), edges1(2, i - 1) + elems1(i) * n_en - elems1(i) /)
-  !end do
-  
-  ! assign an initial itererror (dummy value to enter the loop)
-  !itererror = 1
+  edges2(:, 1) = (/1, elems2(1) * n_en - (elems2(1) - 1)/)
+  do i = 2, numprocs
+    edges2(:, i) = (/edges2(2, i - 1), edges2(2, i - 1) + elems2(i) * n_en - elems2(i) /)
+  end do
 
-  !recv_displs1 = 0
-  !do i = 2, numprocs
-  !  recv_displs1(i) = recv_displs1(i - 1) + elems1(i - 1)
-  !end do
+  recv_displs2 = 0
+  do i = 2, numprocs
+    recv_displs2(i) = recv_displs2(i - 1) + elems2(i - 1)
+  end do
 end subroutine initializedecomp2
 
 
@@ -376,13 +375,12 @@ subroutine elementalmatrices()
 end subroutine elementalmatrices
 
 
-subroutine conjugategradient(rightBC, leftBC)
+subroutine conjugategradient(rightBC, leftBC, xel, a)
   implicit none
-  real(8), intent(in) :: rightBC, leftBC
+  real(8), intent(in)    :: rightBC, leftBC
+  real(8), intent(in)    :: xel(:)
+  real(8), intent(inout) :: a(:) ! pass in an initial guess
 
-  ! initial guess is a straight line between the two endpoints
-  m           = (rightBC - leftBC) / (xel(n_nodes) - xel(1))
-  a           = m * (xel - xel(1)) + leftBC
   res         = rglob - sparse_mult(kel, LM, a)
   z           = res
   lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
@@ -410,6 +408,7 @@ subroutine conjugategradient(rightBC, leftBC)
     
   cnt = cnt + 1
   end do
+  print *, 'CG iterations: ', cnt
 end subroutine conjugategradient
 
 
