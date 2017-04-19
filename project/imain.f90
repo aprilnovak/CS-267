@@ -210,14 +210,18 @@ if (rank == 0) then
   print *, 'P: ', numprocs, 'runtime: ', finish - start
 end if
 
+
+! deallocate memory -------------------------------------------------------------
 deallocate(xel, LM, rglob, a, z, res)
+deallocate(numnodes, elems, edges, BCvals, recv_displs, prev)
+
+if (rank == 0) deallocate(soln)
+
 call mpi_finalize(ierr)
 
-! deallocate variables shared by all processors
-deallocate(qp, wt, x, kel, rel, phi, dphi)
-deallocate(elems, edges, BCvals, prev, recv_displs)
+deallocate(x, qp, wt, phi, dphi, kel, rel)
 
-
+! ------------------------------------------------------------------------------
 
 
 
