@@ -151,7 +151,8 @@ call locationmatrix()                          ! form the location matrix
 call globalload()                              ! form the global load vector
 
 ddcnt = 0
-!do while (itererror > ddtol)
+do while (itererror > ddtol)
+!do while (ddcnt < 5)
   ! save the previous values of the interface BCs
   prev = BCvals
 
@@ -162,8 +163,7 @@ ddcnt = 0
   call conjugategradient(BCvals(2), BCvals(1))
   
   ! each processor sends a boundary value to the processor to the right -----------
-
-  if (rank /= numprocs - 1) then ! last processor has no one to send to
+  if (rank /= numprocs - 1) then
     ! tag of the message is _rank_
     call mpi_send(a(n_nodes - 1), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
   end if
@@ -176,7 +176,7 @@ ddcnt = 0
     BClocals(2) = a(2)
   end if
 
-  ! each processor solves its interface problem
+  ! each processor solves its interface problem -----------------------------------
   if (rank /= 0) then
     BCvals(1) = (rel(2) + rel(1) - kel(2, 1) * BClocals(2) &
                       - kel(1, 2) * BClocals(1)) / (kel(2, 2) + kel(1, 1))
@@ -185,47 +185,38 @@ ddcnt = 0
     call mpi_send(BCvals(1), 1, mpi_real8, rank - 1, rank, mpi_comm_world, ierr)
   end if
 
-  ! rank - 1 process receives from the process to the right
+  ! rank - 1 process receives from the process to the right -----------------------
   if (rank /= numprocs - 1) then
     call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1, mpi_comm_world, stat, ierr)
   end if
 
-  !call mpi_gather((/ a(2), a(n_nodes - 1) /), 2, mpi_real8, &
-  !                BClocals, 2, mpi_real8, 0, mpi_comm_world, ierr)
-
-  ! rank 0 process solves the interface problems ---------------------------------- 
-  !if (rank == 0) then
-  !  do face = 1, numprocs - 1
-  ! end do 
-  !end if
-  
-  !call mpi_bcast(BCvals, numprocs * 2, mpi_real8, 0, mpi_comm_world, ierr)
-
   ! compute iteration error to determine whether to continue looping -------------- 
-  !call mpi_barrier(mpi_comm_world, ierr)
+  call mpi_barrier(mpi_comm_world, ierr)
 
-  !call mpi_allreduce(abs(BCvals(1, rank + 1) - prev(rank + 1)), itererror, 1, mpi_real8, mpi_sum, &
-  !           mpi_comm_world, ierr)  
+  call mpi_allreduce(abs(BCvals(2) - prev(2) + BCvals(1) - prev(1)), itererror, 1, mpi_real8, mpi_sum, &
+             mpi_comm_world, ierr)  
   
-  !call mpi_barrier(mpi_comm_world, ierr)
+  if (rank == 0) print *, itererror
+
+  call mpi_barrier(mpi_comm_world, ierr)
   ddcnt = ddcnt + 1
-!end do ! ends outermost domain decomposition loop
+end do ! ends outermost domain decomposition loop
 
 ! each processor broadcasts its final solution to the rank 0 process --------------
-!call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
-!                    soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, &
-!                    0, mpi_comm_world, ierr)
+call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
+                    soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, &
+                    0, mpi_comm_world, ierr)
 
 ! write results to output file ----------------------------------------------------
 
-!if (rank == 0) then
-!  soln(n_nodes_global) = rightBC
+if (rank == 0) then
+  soln(n_nodes_global) = rightBC
   
   ! write to an output file. If this file exists, it will be re-written.
-!  open(1, file='output.txt', iostat=AllocateStatus, status="replace")
-!  if (AllocateStatus /= 0) STOP "output.txt file opening failed."
-!  write(1, *) soln(:)
-!end if
+  open(1, file='output.txt', iostat=AllocateStatus, status="replace")
+  if (AllocateStatus /= 0) STOP "output.txt file opening failed."
+  write(1, *) soln(:)
+end if
 
 ! final timing results ----------------------------------------------------------
 if (rank == 0) then
