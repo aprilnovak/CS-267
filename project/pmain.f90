@@ -1,5 +1,7 @@
 ! program to solve the heat equation (Dirichlet boundary conditions only)
-! using domain decomposition.
+! using domain decomposition. This version forms the foundation from which
+! I created the actual parallel code - this code is serial, and simulates
+! the presence of multiple processes by looping over ranks.
 
 PROGRAM main
 

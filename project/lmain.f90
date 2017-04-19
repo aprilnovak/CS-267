@@ -196,8 +196,6 @@ do while (itererror > ddtol)
   call mpi_allreduce(abs(BCvals(2) - prev(2) + BCvals(1) - prev(1)), itererror, 1, mpi_real8, mpi_sum, &
              mpi_comm_world, ierr)  
   
-  if (rank == 0) print *, itererror
-
   call mpi_barrier(mpi_comm_world, ierr)
   ddcnt = ddcnt + 1
 end do ! ends outermost domain decomposition loop
@@ -210,18 +208,19 @@ call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
 ! write results to output file ----------------------------------------------------
 
 if (rank == 0) then
-  soln(n_nodes_global) = rightBC
-  
+  soln(n_nodes_global) = rightBC 
   ! write to an output file. If this file exists, it will be re-written.
   open(1, file='output.txt', iostat=AllocateStatus, status="replace")
   if (AllocateStatus /= 0) STOP "output.txt file opening failed."
-  write(1, *) soln(:)
+
+  write(1, *) numprocs, n_el_global, ddcnt, soln
+  !write(1, *) soln(:)
 end if
 
 ! final timing results ----------------------------------------------------------
 if (rank == 0) then
   call cpu_time(finish)
-  print *, 'P: ', numprocs, 'runtime: ', finish - start
+  print *, 'P: ', numprocs, 'n_el: ', n_el, 'runtime: ', finish - start
 end if
 
 ! deallocate memory -------------------------------------------------------------
