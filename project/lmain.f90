@@ -168,7 +168,7 @@ ddcnt = 0
     call mpi_send(a(n_nodes - 1), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
   end if
 
-  ! processor to the right receives the message
+  ! processor to the right receives the message -----------------------------------
   if (rank /= 0) then
     ! tag of the message is rank - 1, since it is the rank of the sending process
     call mpi_recv(BClocals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
@@ -178,6 +178,16 @@ ddcnt = 0
 
   ! each processor solves its interface problem
   if (rank /= 0) then
+    BCvals(1) = (rel(2) + rel(1) - kel(2, 1) * BClocals(2) &
+                      - kel(1, 2) * BClocals(1)) / (kel(2, 2) + kel(1, 1))
+    ! send new interface result to rank - 1 process (to BCvals(2) of rank - 1)
+    ! tag is _rank_
+    call mpi_send(BCvals(1), 1, mpi_real8, rank - 1, rank, mpi_comm_world, ierr)
+  end if
+
+  ! rank - 1 process receives from the process to the right
+  if (rank /= numprocs - 1) then
+    call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1, mpi_comm_world, stat, ierr)
   end if
 
   !call mpi_gather((/ a(2), a(n_nodes - 1) /), 2, mpi_real8, &
@@ -186,9 +196,6 @@ ddcnt = 0
   ! rank 0 process solves the interface problems ---------------------------------- 
   !if (rank == 0) then
   !  do face = 1, numprocs - 1
-  !    BCvals(2, face) = (rel(2) + rel(1) - kel(2, 1) * BClocals(face * 2) &
-  !                      - kel(1, 2) * BClocals(face * 2 + 1)) / (kel(2, 2) + kel(1, 1))
-  !    BCvals(1, face + 1) = BCvals(2, face)
   ! end do 
   !end if
   
