@@ -1,7 +1,8 @@
 ! program to solve the heat equation (Dirichlet boundary conditions only)
 ! using domain decomposition. This version has each process send its entire
 ! solution to the rank 0 process, so the iteration-evolution of the solution
-! can be plotted with this version.
+! can be plotted with this version. In order to compare fairly with kmain, 
+! the output file writing is only performed once.
 
 PROGRAM main
 
@@ -181,28 +182,30 @@ do while (itererror > ddtol)
   call mpi_allreduce(abs(BCvals(1, rank) - prev(rank)), itererror, 1, mpi_real8, mpi_sum, &
              mpi_comm_world, ierr)  
   
-  ! write results to output file --------------------------------------------------
-  if (rank == 0) then
-    if (ddcnt == 0) then
-      ! write to an output file. If this file exists, it will be re-written.
-      open(1, file='output.txt', iostat=AllocateStatus, status="replace")
-      if (AllocateStatus /= 0) STOP "output.txt file opening failed."
-    end if
-    write(1, *) soln(:)
-  end if
-
-  !if (rank == 0) then
-  !  if (ddcnt == 0) then
-  !    ! write timing results
-  !    open(2, file='timing.txt', iostat=AllocateStatus, status="replace")
-  !    if (AllocateStatus /= 0) STOP "timing.txt file opening failed."
-  !  end if
-  !  write(2, *) numprocs
-  !end if
    
   call mpi_barrier(mpi_comm_world, ierr)
   ddcnt = ddcnt + 1
 end do ! ends outermost domain decomposition loop
+
+! write results to output file --------------------------------------------------
+! move this inside the DD loop to plot for each iteration
+if (rank == 0) then
+  !if (ddcnt == 0) then
+    ! write to an output file. If this file exists, it will be re-written.
+    open(1, file='output.txt', iostat=AllocateStatus, status="replace")
+    if (AllocateStatus /= 0) STOP "output.txt file opening failed."
+  !end if
+  write(1, *) soln(:)
+end if
+
+!if (rank == 0) then
+!  if (ddcnt == 0) then
+!    ! write timing results
+!    open(2, file='timing.txt', iostat=AllocateStatus, status="replace")
+!    if (AllocateStatus /= 0) STOP "timing.txt file opening failed."
+!  end if
+!  write(2, *) numprocs
+!end if
 
 
 if (rank == 0) then
