@@ -1,8 +1,8 @@
 ! program to solve the heat equation (Dirichlet boundary conditions only)
-! using domain decomposition. This version has each process send its entire
-! solution to the rank 0 process, so the iteration-evolution of the solution
-! can be plotted with this version. In order to compare fairly with kmain, 
-! the output file writing is only performed once.
+! using domain decomposition. This version has the domain to the left of
+! each interface send a single interface value to the processor to the
+! right of it. This process then computes the interface problem, and 
+! sends a single udpated value to the processor to the left.
 
 PROGRAM main
 
@@ -68,6 +68,7 @@ real(8), dimension(:), allocatable :: rglob       ! global load vector
 real(8), dimension(:), allocatable :: a           ! CG solution iterates
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
+real(8), dimension(:), allocatable :: BClocals    ! vector of BCs for interface problem
 
 real(8), dimension(:, :), allocatable :: BCvals   ! values of BCs for each domain
 real(8), dimension(:, :), allocatable :: kel      ! elemental stiffness matrix
@@ -96,7 +97,6 @@ n_el_global = n_el
 
 ! initialize the parallel MPI environment
 call mpi_init(ierr)
-
 call mpi_comm_size(mpi_comm_world, numprocs, ierr)
 call mpi_comm_rank(mpi_comm_world, rank, ierr)
 
@@ -105,12 +105,28 @@ if (rank == 0) then
   allocate(soln(n_nodes_global), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of soln array failed."
   soln = 0.0
-
+  
+  ! only rank 0 knows about the BClocals vector
+  allocate(BClocals(numprocs * 2), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of BClocals array failed."
 end if
 
 ! each process has their own copy of this DD information
 ! _all_ processors solve a piece of the domain, then the rank 1
 ! process will collect all of the information
+allocate(numnodes(numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
+allocate(elems(numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
+allocate(edges(2, numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
+allocate(BCvals(2, numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of BCvals array failed."
+allocate(recv_displs(numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of recv_displs array failed."
+allocate(prev(numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of prev array failed."
+  
 call initializedecomp()                   ! initialize domain decomposition
 
 ! save values to be used by each processor - these are private for each
@@ -129,7 +145,7 @@ allocate(z(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of z array failed."
 allocate(res(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-
+  
 xel = x(edges(1, rank + 1):edges(2, rank + 1)) ! domain sizes don't change
 BCs = (/ 1, n_nodes /)                         ! BCs are always applied on end nodes
 call locationmatrix()                          ! form the location matrix
@@ -144,29 +160,20 @@ do while (itererror > ddtol)
   rglob(BCs(1)) = BCvals(1, rank + 1)
   rglob(BCs(2)) = BCvals(2, rank + 1)   
   
-  ! perform CG solve 
   call conjugategradient(BCvals(2, rank + 1), BCvals(1, rank + 1))
   
-  ! each processor sends its solution to the rank 0 process -----------------------
+  ! each processor sends its boundary values to the rank 0 process ----------------
   call mpi_barrier(mpi_comm_world, ierr)
-  call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
-                   soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, & 
-                   0, mpi_comm_world, ierr)
+
+  call mpi_gather((/ a(2), a(n_nodes - 1) /), 2, mpi_real8, &
+                  BClocals, 2, mpi_real8, 0, mpi_comm_world, ierr)
 
   ! rank 0 process solves the interface problems ---------------------------------- 
   if (rank == 0) then
-    soln(n_nodes_global) = rightBC
-    
     do face = 1, numprocs - 1
-      leftnode  = edges(2, face) - 1
-      rightnode = edges(2, face) + 1
-      
-      ! update the BCvals matrix
-      BCvals(2, face) = (rel(2) + rel(1) - & 
-                        kel(2, 1) * soln(leftnode) - kel(1, 2) * soln(rightnode)) / & 
-                        (kel(2, 2) + kel(1, 1))
+      BCvals(2, face) = (rel(2) + rel(1) - kel(2, 1) * BClocals(face * 2) &
+                        - kel(1, 2) * BClocals(face * 2 + 1)) / (kel(2, 2) + kel(1, 1))
       BCvals(1, face + 1) = BCvals(2, face)
-    
    end do 
   end if
   
@@ -178,43 +185,37 @@ do while (itererror > ddtol)
   call mpi_allreduce(abs(BCvals(1, rank + 1) - prev(rank + 1)), itererror, 1, mpi_real8, mpi_sum, &
              mpi_comm_world, ierr)  
   
-   
   call mpi_barrier(mpi_comm_world, ierr)
   ddcnt = ddcnt + 1
 end do ! ends outermost domain decomposition loop
 
-! write results to output file --------------------------------------------------
-! move this inside the DD loop to plot for each iteration
+! each processor broadcasts its final solution to the rank 0 process --------------
+call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
+                    soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, &
+                    0, mpi_comm_world, ierr)
+
+! write results to output file ----------------------------------------------------
+
 if (rank == 0) then
-  !if (ddcnt == 0) then
-    ! write to an output file. If this file exists, it will be re-written.
-    open(1, file='output.txt', iostat=AllocateStatus, status="replace")
-    if (AllocateStatus /= 0) STOP "output.txt file opening failed."
-  !end if
+  soln(n_nodes_global) = rightBC
+  
+  ! write to an output file. If this file exists, it will be re-written.
+  open(1, file='output.txt', iostat=AllocateStatus, status="replace")
+  if (AllocateStatus /= 0) STOP "output.txt file opening failed."
   write(1, *) soln(:)
 end if
 
-!if (rank == 0) then
-!  if (ddcnt == 0) then
-!    ! write timing results
-!    open(2, file='timing.txt', iostat=AllocateStatus, status="replace")
-!    if (AllocateStatus /= 0) STOP "timing.txt file opening failed."
-!  end if
-!  write(2, *) numprocs
-!end if
-
-
+! final timing results ----------------------------------------------------------
 if (rank == 0) then
   call cpu_time(finish)
   print *, 'P: ', numprocs, 'runtime: ', finish - start
 end if
 
-
 ! deallocate memory -------------------------------------------------------------
 deallocate(xel, LM, rglob, a, z, res)
 deallocate(numnodes, elems, edges, BCvals, recv_displs, prev)
 
-if (rank == 0) deallocate(soln)
+if (rank == 0) deallocate(soln, BClocals)
 
 call mpi_finalize(ierr)
 
@@ -223,21 +224,11 @@ deallocate(x, qp, wt, phi, dphi, kel, rel)
 ! ------------------------------------------------------------------------------
 
 
-
 CONTAINS ! define all internal procedures
 
 subroutine initializedecomp()
   implicit none
 
-  allocate(numnodes(numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
-  allocate(elems(numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
-  allocate(edges(2, numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
-  allocate(BCvals(2, numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of BCvals array failed."
-  
   ! distribute the elements among the processors 
   maxperproc = (n_el + numprocs - 1) / numprocs
   elems = maxperproc
@@ -274,17 +265,9 @@ subroutine initializedecomp()
     BCvals(1, i + 1) = BCvals(2, i)
   end do
 
-  allocate(prev(numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of prev array failed."
-  
   ! assign an initial itererror (dummy value to enter the loop)
   itererror = 1
 
-  ! initialize the number of things to be received from each process for mpi_gatherv
-  ! and the displacements at which to place those entries in the glboal soln vector
-  allocate(recv_displs(numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of recv_displs array failed."
-  
   recv_displs = 0
   do i = 2, numprocs
     recv_displs(i) = recv_displs(i - 1) + elems(i - 1)
@@ -302,6 +285,7 @@ subroutine globalload()
     end do
   end do
 end subroutine globalload
+
 
 subroutine elementalmatrices()
   implicit none
@@ -322,6 +306,7 @@ subroutine elementalmatrices()
     end do
   end do
 end subroutine elementalmatrices
+
 
 subroutine conjugategradient(rightBC, leftBC)
   implicit none
@@ -451,7 +436,6 @@ subroutine locationmatrix()
     end do
   end do
 end subroutine locationmatrix
-
 
 subroutine phi_val(order, qp)
 ! populate phi and dphi, which are global to the calling program

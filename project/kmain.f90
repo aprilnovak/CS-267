@@ -53,10 +53,6 @@ real(8) :: itererror           ! whole-loop iteration error
 real(8) :: ddtol               ! domain decomposition loop tolerance
 integer :: ierr                ! holds error state for MPI calls
 
-integer :: stat(MPI_STATUS_SIZE)                   ! MPI receive status
-
-
-
 integer, dimension(:), allocatable :: recv_displs ! displacement of each domain
 real(8), dimension(:), allocatable :: prev        ! previous interface values
 real(8), dimension(:), allocatable :: soln        ! global solution vector
