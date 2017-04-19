@@ -216,21 +216,17 @@ if (rank == 0) then
   print *, 'P: ', numprocs, 'runtime: ', finish - start
 end if
 
-! deallocate variables duplicated for each processor
+! deallocate memory -------------------------------------------------------------
 deallocate(xel, LM, rglob, a, z, res)
 deallocate(numnodes, elems, edges, BCvals, recv_displs, prev)
 
-if (rank == 0) then
-  ! deallocate variables only known to rank 0
-end if
+if (rank == 0) deallocate(soln, BClocals)
 
 call mpi_finalize(ierr)
 
-
-! deallocate variables allocated before MPI environment initialized
 deallocate(x, qp, wt, phi, dphi, kel, rel)
 
-
+! ------------------------------------------------------------------------------
 
 
 CONTAINS ! define all internal procedures
