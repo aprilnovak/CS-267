@@ -179,7 +179,7 @@ do while (itererror > ddtol)
   ! compute iteration error to determine whether to continue looping -------------- 
   call mpi_barrier(mpi_comm_world, ierr)
 
-  call mpi_allreduce(abs(BCvals(1, rank) - prev(rank)), itererror, 1, mpi_real8, mpi_sum, &
+  call mpi_allreduce(abs(BCvals(1, rank + 1) - prev(rank + 1)), itererror, 1, mpi_real8, mpi_sum, &
              mpi_comm_world, ierr)  
   
    
