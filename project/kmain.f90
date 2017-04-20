@@ -4,6 +4,8 @@
 ! for final plotting purposes do all of the processors send their entire
 ! solution to the rank 0 process.
 
+! interface problem version, all send to rank 0, but only send point values
+
 PROGRAM main
 
 implicit none

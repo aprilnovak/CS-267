@@ -150,6 +150,7 @@ call mpi_barrier(mpi_comm_world, ierr)
 call initializedecomp2()                  ! initialize second decomposition
 
 ! assign the initial boundary conditions given the rank of the calling process
+! and the node numbers of the edges - changed to second domain
 m = (rightBC - leftBC) / length
 BCvals(1) = m * x(edges1(1, rank + 1)) + leftBC
 BCvals(2) = m * x(edges1(2, rank + 1)) + leftBC

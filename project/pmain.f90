@@ -3,6 +3,8 @@
 ! I created the actual parallel code - this code is serial, and simulates
 ! the presence of multiple processes by looping over ranks.
 
+! serial interface problem version
+
 PROGRAM main
 
 implicit none
