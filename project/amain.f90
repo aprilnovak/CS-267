@@ -165,15 +165,26 @@ ddcnt = 0
   
     call conjugategradient(BCvals(2), BCvals(1))
 
-    ! each odd processor sends a boundary value to the processor to the right ---------
+    ! each odd processor sends a value to the processor to the right ------------------
       ! if the last process is odd, then it has no process to send to
     if (rank + 1 /= numprocs) then
       ! tag of the message is _rank_
       call mpi_send(a(n_nodes - 2 * overlap), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
     end if
+ 
+    ! each odd processor sends a value to the processor to the left -------------------
+    if (rank /= 0) then
+      ! tag of the message is _rank_ + 1000
+      call mpi_send(a(2 * overlap), 1, mpi_real8, rank - 1, rank + 1000, mpi_comm_world, ierr)
+    end if
   else ! even processes receive from the left -----------------------------------------
     ! tag of the message is rank - 1, since it is the rank of the sending process
     call mpi_recv(BCvals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
+
+    ! even processes receive from the right (if last process is even, there is nothing to receive)
+    if (rank + 1 /= numprocs) then
+      call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1 + 1000, mpi_comm_world, ierr)
+    end if
   end if
 
   ! each processor solves its interface problem -----------------------------------
