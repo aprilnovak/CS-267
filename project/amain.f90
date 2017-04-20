@@ -166,26 +166,61 @@ ddcnt = 0
     call conjugategradient(BCvals(2), BCvals(1))
 
     ! each odd processor sends a value to the processor to the right ------------------
-      ! if the last process is odd, then it has no process to send to
-    if (rank + 1 /= numprocs) then
+
+    if (rank + 1 /= numprocs) then ! no one to send to if last
       ! tag of the message is _rank_
       call mpi_send(a(n_nodes - 2 * overlap), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
     end if
  
     ! each odd processor sends a value to the processor to the left -------------------
+
     if (rank /= 0) then
       ! tag of the message is _rank_ + 1000
       call mpi_send(a(2 * overlap), 1, mpi_real8, rank - 1, rank + 1000, mpi_comm_world, ierr)
     end if
+
   else ! even processes receive from the left -----------------------------------------
     ! tag of the message is rank - 1, since it is the rank of the sending process
     call mpi_recv(BCvals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
 
     ! even processes receive from the right (if last process is even, there is nothing to receive)
     if (rank + 1 /= numprocs) then
-      call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1 + 1000, mpi_comm_world, ierr)
+      call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1 + 1000, mpi_comm_world, stat, ierr)
     end if
   end if
+
+  call mpi_barrier(mpi_comm_world, ierr)
+
+  ! each even processor solves its domain ----------------------------------------------
+  if (mod(rank + 1, 2) == 0) then
+    rglob(BCs(1)) = BCvals(1)
+    rglob(BCs(2)) = BCvals(2)   
+  
+    call conjugategradient(BCvals(2), BCvals(1))
+   
+    ! each even processor sends a value to the right -----------------------------------
+    if (rank + 1 /= numprocs) then
+      ! tag is _rank_
+      call mpi_send(a(n_nodes - 2 * overlap), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
+    end if 
+
+    ! each even processor sends a value to the left ------------------------------------
+    call mpi_send(a(2 * overlap), 1, mpi_real8, rank - 1, rank + 2000, mpi_comm_world, ierr)
+
+  else
+    ! each odd processor receives a value from the left --------------------------------
+    if (rank /= 0) then ! first process has no one to the left
+      call mpi_recv(BCvals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
+    end if
+   
+    ! each odd processor receives a value from the right -------------------------------
+    if (rank + 1 /= numprocs) then
+      call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1 + 2000, mpi_comm_world, stat, ierr)
+    end if
+ 
+  end if
+
+
 
   ! each processor solves its interface problem -----------------------------------
   !if (rank /= 0) then
