@@ -68,7 +68,6 @@ real(8), dimension(:), allocatable :: a           ! CG solution iterates
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
 
-real(8), dimension(2)                 :: BClocals ! values of BCs for each interface
 real(8), dimension(2)                 :: BCvals   ! values of BCs for each domain
 real(8), dimension(:, :), allocatable :: kel      ! elemental stiffness matrix
 real(8), dimension(:, :), allocatable :: phi      ! shape functions
@@ -118,80 +117,9 @@ if (AllocateStatus /= 0) STOP "Allocation of recv_displs array failed."
 allocate(prev(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of prev array failed."
   
-! partition the domain: numnodes are number of nodes per processor
 overlap = 3 ! number of elements to overlap each domain with the next (half-overlap)
 
-! distribute the elements among the processors, initially assuming no overlap
-maxperproc = (n_el + numprocs - 1) / numprocs
-elems = maxperproc
-j = maxperproc * numprocs - n_el
-
-i = 1
-do while (j > 0)
-  elems(i) = elems(i) - 1
-  i = i + 1
-  j = j - 1
-  if (i == numprocs + 1) i = 1
-end do
-if (rank == 0) print *, 'elems before extension: ', elems
-
-
-! assign the global node numbers that correspond to the edges of each domain
-! this must take into account that the domains overlap, so this uses the 
-! element counts before manually adding in the overlap
-edges(:, 1) = (/1, elems(1) * n_en - (elems(1) - 1)/)
-do i = 2, numprocs
-  edges(:, i) = (/edges(2, i - 1), edges(2, i - 1) + elems(i) * n_en - elems(i) /)
-end do
-
-if (rank == 0) print *, 'edges before extension: ', edges
-
-edges(2, 1) = edges(2, 1) + overlap;
-edges(1, numprocs) = edges(1, numprocs) - overlap;
-
-do i = 2, numprocs - 1
-  edges(1, i) = edges(1, i) - overlap;
-  edges(2, i) = edges(2, i) + overlap;
-end do
-
-if (rank == 0) print *, 'edges after extension: ', edges
-
-
-
-
-do i = 1, numprocs
-  if ((i == 1) .or. (i == numprocs)) then
-    elems(i) = elems(i) + overlap
-  else
-    elems(i) = elems(i) + 2 * overlap
-  end if
-end do
-
-if (rank == 0) print *, 'elems after extension: ', elems
-
-! assign the numbers of nodes in each domain 
-do j = 1, numprocs
-  numnodes(j) = elems(j) * n_en - (elems(j) - 1)
-end do
-
-if (rank == 0) print *, 'numbers of nodes after extension: ', numnodes
-
-
-
-
-
-
-
-!call initializedecomp()                   ! initialize domain decomposition
-
-! assign the initial boundary conditions given the rank of the calling process
-!m = (rightBC - leftBC) / length
-!BCvals(1) = m * x(edges(1, rank + 1)) + leftBC
-!BCvals(2) = m * x(edges(2, rank + 1)) + leftBC
-
-! save values to be used by each processor - these are private for each
-!n_el = elems(rank + 1)
-!n_nodes = numnodes(rank + 1)
+call initializedecomp()                   ! initialize domain decomposition
 
 allocate(xel(numnodes(rank + 1)), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
@@ -205,37 +133,48 @@ allocate(z(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of z array failed."
 allocate(res(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-  
-!xel = x(edges(1, rank + 1):edges(2, rank + 1)) ! domain sizes don't change
-!BCs = (/1, n_nodes/)                           ! BCs are always applied on end nodes
-!call locationmatrix()                          ! form the location matrix
-!call globalload()                              ! form the global load vector
+
+n_el    = elems(rank + 1)
+n_nodes = numnodes(rank + 1)
+
+! assign the initial boundary conditions given the rank of the calling process
+! only the left processors do anything the first iteration
+if (mod(rank + 1, 2) /= 0) then ! odd processes
+  m = (rightBC - leftBC) / length
+  BCvals(1) = m * x(edges(1, rank + 1)) + leftBC
+  BCvals(2) = m * x(edges(2, rank + 1)) + leftBC
+end if
+
+! each processor prepares its solution needs  
+xel = x(edges(1, rank + 1):edges(2, rank + 1)) ! domain sizes don't change
+BCs = (/1, n_nodes/)                           ! BCs are always applied on end nodes
+call locationmatrix()                          ! form the location matrix
+call globalload()                              ! form the global load vector
 
 ddcnt = 0
 !do while (itererror > ddtol)
 !do while (ddcnt < 5)
   ! save the previous values of the interface BCs
-  !prev = BCvals
+  prev = BCvals
 
-  ! each processor solves for its domain ------------------------------------------
-  !rglob(BCs(1)) = BCvals(1)
-  !rglob(BCs(2)) = BCvals(2)   
-  
-  !call conjugategradient(BCvals(2), BCvals(1))
-  
-  ! each processor sends a boundary value to the processor to the right -----------
-  !if (rank /= numprocs - 1) then
-    ! tag of the message is _rank_
-  !  call mpi_send(a(n_nodes - 1), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
-  !end if
+  ! each odd processor solves for its domain ------------------------------------------
 
-  ! processor to the right receives the message -----------------------------------
-  !if (rank /= 0) then
+  if (mod(rank + 1, 2) /= 0) then
+    rglob(BCs(1)) = BCvals(1)
+    rglob(BCs(2)) = BCvals(2)   
+  
+    call conjugategradient(BCvals(2), BCvals(1))
+
+    ! each odd processor sends a boundary value to the processor to the right ---------
+      ! if the last process is odd, then it has no process to send to
+    if (rank + 1 /= numprocs) then
+      ! tag of the message is _rank_
+      call mpi_send(a(n_nodes - 2 * overlap), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
+    end if
+  else ! even processes receive from the left -----------------------------------------
     ! tag of the message is rank - 1, since it is the rank of the sending process
-  !  call mpi_recv(BClocals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
-    ! assign other local boundary condition
-  !  BClocals(2) = a(2)
-  !end if
+    call mpi_recv(BCvals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
+  end if
 
   ! each processor solves its interface problem -----------------------------------
   !if (rank /= 0) then
@@ -301,12 +240,11 @@ CONTAINS ! define all internal procedures
 
 subroutine initializedecomp()
   implicit none
-
-  ! distribute the elements among the processors 
+  ! distribute the elements among the processors, initially assuming no overlap
   maxperproc = (n_el + numprocs - 1) / numprocs
   elems = maxperproc
   j = maxperproc * numprocs - n_el
- 
+  
   i = 1
   do while (j > 0)
     elems(i) = elems(i) - 1
@@ -314,25 +252,47 @@ subroutine initializedecomp()
     j = j - 1
     if (i == numprocs + 1) i = 1
   end do
- 
-  ! assign the numbers of nodes in each domain 
-  do j = 1, numprocs
-    numnodes(j) = elems(j) * n_en - (elems(j) - 1)
-  end do
+  if (rank == 0) print *, 'elems before extension: ', elems
+  
   
   ! assign the global node numbers that correspond to the edges of each domain
+  ! this must take into account that the domains overlap, so this uses the 
+  ! element counts before manually adding in the overlap
   edges(:, 1) = (/1, elems(1) * n_en - (elems(1) - 1)/)
   do i = 2, numprocs
     edges(:, i) = (/edges(2, i - 1), edges(2, i - 1) + elems(i) * n_en - elems(i) /)
   end do
   
+  edges(2, 1) = edges(2, 1) + overlap;
+  edges(1, numprocs) = edges(1, numprocs) - overlap;
+  
+  do i = 2, numprocs - 1
+    edges(1, i) = edges(1, i) - overlap;
+    edges(2, i) = edges(2, i) + overlap;
+  end do
+ 
+  ! add overlap to the elems() array 
+  do i = 1, numprocs
+    if ((i == 1) .or. (i == numprocs)) then
+      elems(i) = elems(i) + overlap
+    else
+      elems(i) = elems(i) + 2 * overlap
+    end if
+  end do
+  
+  ! assign the numbers of nodes in each domain 
+  do j = 1, numprocs
+    numnodes(j) = elems(j) * n_en - (elems(j) - 1)
+  end do
+  
   ! assign an initial itererror (dummy value to enter the loop)
   itererror = 1
 
-  recv_displs = 0
-  do i = 2, numprocs
-    recv_displs(i) = recv_displs(i - 1) + elems(i - 1)
-  end do
+
+  !recv_displs = 0
+  !do i = 2, numprocs
+  !  recv_displs(i) = recv_displs(i - 1) + elems(i - 1)
+  !end do
 end subroutine initializedecomp
 
 
