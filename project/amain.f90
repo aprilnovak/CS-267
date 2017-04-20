@@ -48,6 +48,7 @@ integer  :: ddcnt              ! domain decomposition counter
 real(8) :: itererror           ! whole-loop iteration error
 real(8) :: ddtol               ! domain decomposition loop tolerance
 integer :: ierr                ! holds error state for MPI calls
+integer :: overlap             ! number of elements to overlap each domain
 
 integer, dimension(mpi_status_size) :: stat ! MPI send/receive status
 
@@ -91,7 +92,7 @@ call phi_val(order, qp)                           ! initialize shape functions
 call elementalmatrices()                          ! form elemental matrices and vectors
 
 n_nodes_global = n_nodes
-n_el_global = n_el
+n_el_global    = n_el
 
 ! initialize the parallel MPI environment
 call mpi_init(ierr)
@@ -117,16 +118,80 @@ if (AllocateStatus /= 0) STOP "Allocation of recv_displs array failed."
 allocate(prev(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of prev array failed."
   
-call initializedecomp()                   ! initialize domain decomposition
+! partition the domain: numnodes are number of nodes per processor
+overlap = 3 ! number of elements to overlap each domain with the next (half-overlap)
+
+! distribute the elements among the processors, initially assuming no overlap
+maxperproc = (n_el + numprocs - 1) / numprocs
+elems = maxperproc
+j = maxperproc * numprocs - n_el
+
+i = 1
+do while (j > 0)
+  elems(i) = elems(i) - 1
+  i = i + 1
+  j = j - 1
+  if (i == numprocs + 1) i = 1
+end do
+if (rank == 0) print *, 'elems before extension: ', elems
+
+
+! assign the global node numbers that correspond to the edges of each domain
+! this must take into account that the domains overlap, so this uses the 
+! element counts before manually adding in the overlap
+edges(:, 1) = (/1, elems(1) * n_en - (elems(1) - 1)/)
+do i = 2, numprocs
+  edges(:, i) = (/edges(2, i - 1), edges(2, i - 1) + elems(i) * n_en - elems(i) /)
+end do
+
+if (rank == 0) print *, 'edges before extension: ', edges
+
+edges(2, 1) = edges(2, 1) + overlap;
+edges(1, numprocs) = edges(1, numprocs) - overlap;
+
+do i = 2, numprocs - 1
+  edges(1, i) = edges(1, i) - overlap;
+  edges(2, i) = edges(2, i) + overlap;
+end do
+
+if (rank == 0) print *, 'edges after extension: ', edges
+
+
+
+
+do i = 1, numprocs
+  if ((i == 1) .or. (i == numprocs)) then
+    elems(i) = elems(i) + overlap
+  else
+    elems(i) = elems(i) + 2 * overlap
+  end if
+end do
+
+if (rank == 0) print *, 'elems after extension: ', elems
+
+! assign the numbers of nodes in each domain 
+do j = 1, numprocs
+  numnodes(j) = elems(j) * n_en - (elems(j) - 1)
+end do
+
+if (rank == 0) print *, 'numbers of nodes after extension: ', numnodes
+
+
+
+
+
+
+
+!call initializedecomp()                   ! initialize domain decomposition
 
 ! assign the initial boundary conditions given the rank of the calling process
-m = (rightBC - leftBC) / length
-BCvals(1) = m * x(edges(1, rank + 1)) + leftBC
-BCvals(2) = m * x(edges(2, rank + 1)) + leftBC
+!m = (rightBC - leftBC) / length
+!BCvals(1) = m * x(edges(1, rank + 1)) + leftBC
+!BCvals(2) = m * x(edges(2, rank + 1)) + leftBC
 
 ! save values to be used by each processor - these are private for each
-n_el = elems(rank + 1)
-n_nodes = numnodes(rank + 1)
+!n_el = elems(rank + 1)
+!n_nodes = numnodes(rank + 1)
 
 allocate(xel(numnodes(rank + 1)), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
@@ -141,77 +206,77 @@ if (AllocateStatus /= 0) STOP "Allocation of z array failed."
 allocate(res(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of res array failed."
   
-xel = x(edges(1, rank + 1):edges(2, rank + 1)) ! domain sizes don't change
-BCs = (/1, n_nodes/)                           ! BCs are always applied on end nodes
-call locationmatrix()                          ! form the location matrix
-call globalload()                              ! form the global load vector
+!xel = x(edges(1, rank + 1):edges(2, rank + 1)) ! domain sizes don't change
+!BCs = (/1, n_nodes/)                           ! BCs are always applied on end nodes
+!call locationmatrix()                          ! form the location matrix
+!call globalload()                              ! form the global load vector
 
 ddcnt = 0
-do while (itererror > ddtol)
+!do while (itererror > ddtol)
 !do while (ddcnt < 5)
   ! save the previous values of the interface BCs
-  prev = BCvals
+  !prev = BCvals
 
   ! each processor solves for its domain ------------------------------------------
-  rglob(BCs(1)) = BCvals(1)
-  rglob(BCs(2)) = BCvals(2)   
+  !rglob(BCs(1)) = BCvals(1)
+  !rglob(BCs(2)) = BCvals(2)   
   
-  call conjugategradient(BCvals(2), BCvals(1))
+  !call conjugategradient(BCvals(2), BCvals(1))
   
   ! each processor sends a boundary value to the processor to the right -----------
-  if (rank /= numprocs - 1) then
+  !if (rank /= numprocs - 1) then
     ! tag of the message is _rank_
-    call mpi_send(a(n_nodes - 1), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
-  end if
+  !  call mpi_send(a(n_nodes - 1), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
+  !end if
 
   ! processor to the right receives the message -----------------------------------
-  if (rank /= 0) then
+  !if (rank /= 0) then
     ! tag of the message is rank - 1, since it is the rank of the sending process
-    call mpi_recv(BClocals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
+  !  call mpi_recv(BClocals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
     ! assign other local boundary condition
-    BClocals(2) = a(2)
-  end if
+  !  BClocals(2) = a(2)
+  !end if
 
   ! each processor solves its interface problem -----------------------------------
-  if (rank /= 0) then
-    BCvals(1) = (rel(2) + rel(1) - kel(2, 1) * BClocals(2) &
-                      - kel(1, 2) * BClocals(1)) / (kel(2, 2) + kel(1, 1))
-    ! send new interface result to rank - 1 process (to BCvals(2) of rank - 1)
-    ! tag is _rank_
-    call mpi_send(BCvals(1), 1, mpi_real8, rank - 1, rank, mpi_comm_world, ierr)
-  end if
+  !if (rank /= 0) then
+  !  BCvals(1) = (rel(2) + rel(1) - kel(2, 1) * BClocals(2) &
+  !                    - kel(1, 2) * BClocals(1)) / (kel(2, 2) + kel(1, 1))
+  !  ! send new interface result to rank - 1 process (to BCvals(2) of rank - 1)
+  !  ! tag is _rank_
+  !  call mpi_send(BCvals(1), 1, mpi_real8, rank - 1, rank, mpi_comm_world, ierr)
+  !end if
 
   ! rank - 1 process receives from the process to the right -----------------------
-  if (rank /= numprocs - 1) then
-    call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1, mpi_comm_world, stat, ierr)
-  end if
+  !if (rank /= numprocs - 1) then
+  !  call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1, mpi_comm_world, stat, ierr)
+  !end if
 
   ! compute iteration error to determine whether to continue looping -------------- 
-  call mpi_barrier(mpi_comm_world, ierr)
+  !call mpi_barrier(mpi_comm_world, ierr)
 
-  call mpi_allreduce(abs(BCvals(2) - prev(2) + BCvals(1) - prev(1)), itererror, 1, mpi_real8, mpi_sum, &
-             mpi_comm_world, ierr)  
+  !call mpi_allreduce(abs(BCvals(2) - prev(2) + BCvals(1) - prev(1)), itererror, 1, mpi_real8, mpi_sum, &
+  !           mpi_comm_world, ierr)  
   
-  call mpi_barrier(mpi_comm_world, ierr)
-  ddcnt = ddcnt + 1
-end do ! ends outermost domain decomposition loop
+  !call mpi_barrier(mpi_comm_world, ierr)
+  !ddcnt = ddcnt + 1
+!end do ! ends outermost domain decomposition loop
 
 ! each processor broadcasts its final solution to the rank 0 process --------------
-call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
-                    soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, &
-                    0, mpi_comm_world, ierr)
+!call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
+!                    soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, &
+!                    0, mpi_comm_world, ierr)
 
 ! write results to output file ----------------------------------------------------
 
-if (rank == 0) then
-  soln(n_nodes_global) = rightBC 
+!if (rank == 0) then
+!  soln(n_nodes_global) = rightBC 
   ! write to an output file. If this file exists, it will be re-written.
-  open(1, file='output.txt', iostat=AllocateStatus, status="replace")
-  if (AllocateStatus /= 0) STOP "output.txt file opening failed."
+!  open(1, file='output.txt', iostat=AllocateStatus, status="replace")
+!  if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 
-  write(1, *) numprocs, n_el_global, ddcnt, soln
+!  write(1, *) numprocs, n_el_global, ddcnt, soln
   !write(1, *) soln(:)
-end if
+!end if
 
 ! final timing results ----------------------------------------------------------
 if (rank == 0) then
