@@ -152,8 +152,8 @@ call locationmatrix()                          ! form the location matrix
 call globalload()                              ! form the global load vector
 
 ddcnt = 0
-!do while (itererror > ddtol)
-!do while (ddcnt < 5)
+do while (itererror > ddtol)
+!do while (ddcnt < 10)
   ! save the previous values of the interface BCs
   prev = BCvals
 
@@ -217,36 +217,22 @@ ddcnt = 0
     if (rank + 1 /= numprocs) then
       call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1 + 2000, mpi_comm_world, stat, ierr)
     end if
- 
   end if
 
-
-
-  ! each processor solves its interface problem -----------------------------------
-  !if (rank /= 0) then
-  !  BCvals(1) = (rel(2) + rel(1) - kel(2, 1) * BClocals(2) &
-  !                    - kel(1, 2) * BClocals(1)) / (kel(2, 2) + kel(1, 1))
-  !  ! send new interface result to rank - 1 process (to BCvals(2) of rank - 1)
-  !  ! tag is _rank_
-  !  call mpi_send(BCvals(1), 1, mpi_real8, rank - 1, rank, mpi_comm_world, ierr)
-  !end if
-
-  ! rank - 1 process receives from the process to the right -----------------------
-  !if (rank /= numprocs - 1) then
-  !  call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1, mpi_comm_world, stat, ierr)
-  !end if
-
   ! compute iteration error to determine whether to continue looping -------------- 
-  !call mpi_barrier(mpi_comm_world, ierr)
+  call mpi_barrier(mpi_comm_world, ierr)
 
-  !call mpi_allreduce(abs(BCvals(2) - prev(2) + BCvals(1) - prev(1)), itererror, 1, mpi_real8, mpi_sum, &
-  !           mpi_comm_world, ierr)  
-  
-  !call mpi_barrier(mpi_comm_world, ierr)
-  !ddcnt = ddcnt + 1
-!end do ! ends outermost domain decomposition loop
+  call mpi_allreduce(abs(BCvals(2) - prev(2) + BCvals(1) - prev(1)), itererror, 1, mpi_real8, mpi_sum, &
+             mpi_comm_world, ierr)  
+ 
+  call mpi_barrier(mpi_comm_world, ierr)
+  ddcnt = ddcnt + 1
+end do ! ends outermost domain decomposition loop
+
+if (rank == 0) print *, 'count: ', ddcnt
 
 ! each processor broadcasts its final solution to the rank 0 process --------------
+!print *, 'rank: ', rank 
 !call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
 !                    soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, &
 !                    0, mpi_comm_world, ierr)
@@ -333,7 +319,6 @@ subroutine initializedecomp()
   
   ! assign an initial itererror (dummy value to enter the loop)
   itererror = 1
-
 
   !recv_displs = 0
   !do i = 2, numprocs
