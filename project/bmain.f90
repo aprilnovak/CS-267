@@ -83,6 +83,14 @@ real(8), dimension(:, :), allocatable :: dphi     ! shape function derivatives
 integer, dimension(:, :), allocatable :: edges    ! nodes on edge of each domain
 integer, dimension(:, :), allocatable :: LM       ! location matrix
 
+real(8), dimension(:), allocatable :: rglobcoarse ! global load vector, coarse mesh
+real(8), dimension(:), allocatable :: xcoarse     ! coordinates of the shared nodes
+real(8), dimension(:), allocatable :: acoarse     ! coarse-mesh solution
+real(8), dimension(:), allocatable :: zcoarse     ! CG update iterates
+real(8), dimension(:), allocatable :: rescoarse   ! solution residual
+real(8), dimension(:, :), allocatable :: BCcoarse ! coarse solution BCs
+integer, dimension(:, :), allocatable :: LMcoarse ! location matrix of coarse problem
+
 k = 1.0        ! thermal conductivity
 source = 10.0  ! heat source
 tol = 0.0001   ! CG convergence tolerance
@@ -113,44 +121,87 @@ if (rank == 0) then
   soln = 0.0
 end if
 
-! each process has their own copy of this DD information
-allocate(numnodes(numprocs), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
-allocate(elems(numprocs), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
-allocate(edges(2, numprocs), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
-allocate(recv_displs(numprocs), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of recv_displs array failed."
-allocate(prev(numprocs), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of prev array failed."
-  
+call allocatedecomp()                     ! allocate space for decompsition data
 call initializedecomp()                   ! initialize domain decomposition
 
-! assign the initial boundary conditions given the rank of the calling process
-m = (rightBC - leftBC) / length
-BCvals(1) = m * x(edges(1, rank + 1)) + leftBC
-BCvals(2) = m * x(edges(2, rank + 1)) + leftBC
+! perform a coarse solution to get initial guesses for the interface values
+! this only needs to be performed by the rank 0 process
+if (rank == 0) then
+  n_el    = numprocs
+  n_nodes = numprocs + 1
+  
+  ! allocate storage for the coarse-mesh CG solve
+  allocate(xcoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of xcoarse array failed."
+  allocate(LMcoarse(n_en, n_el), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of LMcoarse array failed."
+  allocate(rglobcoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rglobcoarse array failed."
+  allocate(acoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of acoarse array failed."
+  allocate(zcoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of zcoarse array failed."
+  allocate(rescoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rescoarse array failed."
 
-! save values to be used by each processor - these are private for each
-n_el = elems(rank + 1)
+  xcoarse(1) = x(edges(1, 1))
+  do i = 2, n_nodes
+    xcoarse(i) = x(edges(2, i - 1))
+  end do
+
+  BCs = (/ 1, n_nodes /) 
+  BCvals = (/ leftBC, rightBC /)
+  
+  ! forn the location matrix
+  do j = 1, n_el
+    do i = 1, n_en
+      LMcoarse(i, j) = (j - 1) * (n_en - 1) + i
+    end do
+  end do
+  
+  ! form the global load vector
+  rglobcoarse = 0.0
+  do q = 1, n_el
+    do i = 1, n_en
+      rglobcoarse(LMcoarse(i, q)) = rglobcoarse(LMcoarse(i, q)) + rel(i)
+    end do
+  end do
+  
+  ! initial guess is a straight line between the two endpoints
+  acoarse = m * (xcoarse - xcoarse(1)) + BCvals(1)
+  
+  rglobcoarse(BCs(1)) = BCvals(1)
+  rglobcoarse(BCs(2)) = BCvals(2)   
+ 
+  call conjugategradient_coarse(acoarse)
+ 
+  ! insert first-guess BCs into BCcoarse array, then broadcast to all processes
+  BCcoarse(1, 1) = acoarse(1)
+  BCcoarse(2, numprocs) = acoarse(n_nodes)
+
+  do i = 1, numprocs - 1
+    BCcoarse(2, i) = acoarse(i + 1)
+    BCcoarse(1, i + 1) = acoarse(i + 1)
+  end do
+
+  deallocate(xcoarse, LMcoarse, rglobcoarse, acoarse, zcoarse, rescoarse)  
+end if
+
+call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
+
+! save values to be used by each processor - these are private for each individual domain
+n_el    = elems(rank + 1)
 n_nodes = numnodes(rank + 1)
 
-allocate(xel(numnodes(rank + 1)), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
-allocate(LM(n_en, n_el), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
-allocate(rglob(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
-allocate(a(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of a array failed."
-allocate(z(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of z array failed."
-allocate(res(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-  
-xel = x(edges(1, rank + 1):edges(2, rank + 1)) ! domain sizes don't change
-BCs = (/1, n_nodes/)                           ! BCs are always applied on end nodes
+call allocateDDdata()
+
+xel     = x(edges(1, rank + 1):edges(2, rank + 1))
+BCs     = (/1, n_nodes/)
+
+! assign the initial boundary conditions given the rank of the calling process
+BCvals(1) = BCcoarse(1, rank + 1)
+BCvals(2) = BCcoarse(2, rank + 1)
+
 call locationmatrix()                          ! form the location matrix
 call globalload()                              ! form the global load vector
 
@@ -232,7 +283,7 @@ end if
 
 ! deallocate memory -------------------------------------------------------------
 deallocate(xel, LM, rglob, a, z, res)
-deallocate(numnodes, elems, edges, recv_displs, prev)
+deallocate(numnodes, elems, edges, recv_displs, prev, BCcoarse)
 
 if (rank == 0) deallocate(soln)
 
@@ -244,6 +295,42 @@ deallocate(x, qp, wt, phi, dphi, kel, rel)
 
 
 CONTAINS ! define all internal procedures
+
+subroutine allocateDDdata()
+  implicit none
+
+  allocate(xel(numnodes(rank + 1)), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
+  allocate(LM(n_en, n_el), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
+  allocate(rglob(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
+  allocate(a(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of a array failed."
+  allocate(z(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of z array failed."
+  allocate(res(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of res array failed."
+end subroutine allocateDDdata
+
+subroutine allocatedecomp()
+  implicit none
+
+  ! each process has their own copy of this DD information
+  allocate(numnodes(numprocs), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
+  allocate(elems(numprocs), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
+  allocate(edges(2, numprocs), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
+  allocate(recv_displs(numprocs), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of recv_displs array failed."
+  allocate(prev(numprocs), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of prev array failed."
+  allocate(BCcoarse(2, numprocs), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of BCcoarse array failed."
+end subroutine allocatedecomp
+
 
 subroutine initializedecomp()
   implicit none
@@ -315,6 +402,41 @@ subroutine elementalmatrices()
 end subroutine elementalmatrices
 
 
+subroutine conjugategradient_coarse(acoarse)
+  implicit none
+  real(8), intent(inout) :: acoarse(:)
+
+  rescoarse   = rglobcoarse - sparse_mult(kel, LMcoarse, acoarse)
+  zcoarse     = rescoarse
+  lambda      = dotprod(zcoarse, rescoarse)/dotprod(zcoarse, sparse_mult(kel, LMcoarse, zcoarse))
+  acoarse     = acoarse + lambda * zcoarse
+  rescoarse   = rglobcoarse - sparse_mult(kel, LMcoarse, acoarse)
+  convergence = 0.0
+ 
+  do i = 1, n_nodes
+    convergence = convergence + abs(rescoarse(i))
+  end do
+  
+  cnt = 0
+  do while (convergence > tol)
+    theta       = sparse_mult_dot(kel, LMcoarse, zcoarse, rescoarse) &
+                  / sparse_mult_dot(kel, LMcoarse, zcoarse, zcoarse)
+    zcoarse     = rescoarse - theta * zcoarse
+    lambda      = dotprod(zcoarse, rescoarse) / sparse_mult_dot(kel, LMcoarse, zcoarse, zcoarse)
+    acoarse     = acoarse + lambda * zcoarse
+    rescoarse   = rglobcoarse - sparse_mult(kel, LMcoarse, acoarse)
+    convergence = 0.0
+    
+    do i = 1, n_nodes
+      convergence = convergence + abs(rescoarse(i))
+    end do
+    
+  cnt = cnt + 1
+  end do
+end subroutine conjugategradient_coarse
+
+
+
 subroutine conjugategradient(a)
   implicit none
   real(8), intent(inout) :: a(:)
@@ -326,20 +448,20 @@ subroutine conjugategradient(a)
   res         = rglob - sparse_mult(kel, LM, a)
   convergence = 0.0
  
-  ! convergence is assessed by the magnitude of the residual
   do i = 1, n_nodes
     convergence = convergence + abs(res(i))
   end do
   
   cnt = 0
   do while (convergence > tol)
-    theta    = sparse_mult_dot(kel, LM, z, res) / sparse_mult_dot(kel, LM, z, z)
-    z        = res - theta * z
-    lambda   = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z)
-    a        = a + lambda * z
-    res      = rglob - sparse_mult(kel, LM, a)
-    
+    theta       = sparse_mult_dot(kel, LM, z, res) &
+                  / sparse_mult_dot(kel, LM, z, z)
+    z           = res - theta * z
+    lambda      = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z)
+    a           = a + lambda * z
+    res         = rglob - sparse_mult(kel, LM, a)
     convergence = 0.0
+    
     do i = 1, n_nodes
       convergence = convergence + abs(res(i))
     end do
