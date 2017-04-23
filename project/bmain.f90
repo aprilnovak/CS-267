@@ -36,8 +36,6 @@ real(8) :: rightBC             ! right Dirichlet boundary condition value
 
 ! variables to define the CG solver
 integer  :: cnt                ! number of CG iterations
-real(8) :: theta               ! CG coefficient
-real(8) :: lambda              ! CG coefficient
 real(8) :: convergence         ! difference between CG iterations
 real(8) :: tol                 ! CG convergence tolerance
 real(8) :: startCG             ! start, CG
@@ -83,6 +81,8 @@ real(8), dimension(:, :), allocatable :: dphi     ! shape function derivatives
 integer, dimension(:, :), allocatable :: edges    ! nodes on edge of each domain
 integer, dimension(:, :), allocatable :: LM       ! location matrix
 
+real(8), dimension(:), allocatable :: zcoarse     ! coarse CG vector
+real(8), dimension(:), allocatable :: rescoarse   ! coarse CG residual vector 
 real(8), dimension(:), allocatable :: rglobcoarse ! global load vector, coarse mesh
 real(8), dimension(:), allocatable :: xcoarse     ! coordinates of the shared nodes
 real(8), dimension(:), allocatable :: acoarse     ! coarse-mesh solution
@@ -139,6 +139,12 @@ if (rank == 0) then
   allocate(acoarse(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of acoarse array failed."
 
+  allocate(zcoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of zcoarse array failed."
+  allocate(rescoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rescoarse array failed."
+
+
   xcoarse(1) = x(edges(1, 1))
   do i = 2, n_nodes
     xcoarse(i) = x(edges(2, i - 1))
@@ -174,8 +180,8 @@ if (rank == 0) then
 
   rglobcoarse(BCs(1)) = BCvals(1)
   rglobcoarse(BCs(2)) = BCvals(2)   
- 
-  call conjugategradient_coarse(acoarse, LMcoarse, rglobcoarse)
+
+  call conjugategradient(kel, acoarse, LMcoarse, rglobcoarse, zcoarse, rescoarse, BCs)
   
   print *, 'coarse solution: ', acoarse
   
@@ -224,7 +230,7 @@ do while (itererror > ddtol)
   rglob(BCs(1)) = BCvals(1)
   rglob(BCs(2)) = BCvals(2)   
  
-  call conjugategradient(a, LM, rglob, z, res, BCs)
+  call conjugategradient(kel, a, LM, rglob, z, res, BCs)
   
   ! each processor sends a boundary value to the processor to the right -----------
   if (rank /= numprocs - 1) then
@@ -408,68 +414,20 @@ subroutine elementalmatrices()
 end subroutine elementalmatrices
 
 
-subroutine conjugategradient_coarse(acoarse, LMcoarse, rglobcoarse)
-  implicit none
-  real(8), intent(inout) :: acoarse(:)
-  real(8), intent(in) :: rglobcoarse(:)
-  integer, intent(in) :: LMcoarse(:, :)
-
-  real(8) :: lambda, theta, convergence
-  real(8), dimension(:), allocatable :: zcoarse, rescoarse 
- 
-  allocate(zcoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of zcoarse array failed."
-  allocate(rescoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rescoarse array failed."
-  
-
-  rescoarse   = rglobcoarse - sparse_mult(kel, LMcoarse, acoarse)
-  print *, 'rescoarse: ', rescoarse
-  zcoarse     = rescoarse
-  lambda      = dotprod(zcoarse, rescoarse)/dotprod(zcoarse, sparse_mult(kel, LMcoarse, zcoarse))
-  print *, 'lambda: ', lambda
-  acoarse     = acoarse + lambda * zcoarse
-  rescoarse   = rglobcoarse - sparse_mult(kel, LMcoarse, acoarse)
-  convergence = 0.0
- 
-  do i = 1, n_nodes
-    convergence = convergence + abs(rescoarse(i))
-  end do
-
-  print *, 'convergence: ', convergence
-  
-  cnt = 0
-  do while (convergence > tol)
-    theta       = sparse_mult_dot(kel, LMcoarse, zcoarse, rescoarse, BCs) &
-                  / sparse_mult_dot(kel, LMcoarse, zcoarse, zcoarse, BCs)
-    zcoarse     = rescoarse - theta * zcoarse
-    lambda      = dotprod(zcoarse, rescoarse) / sparse_mult_dot(kel, LMcoarse, zcoarse, zcoarse, BCs)
-    acoarse     = acoarse + lambda * zcoarse
-    rescoarse   = rglobcoarse - sparse_mult(kel, LMcoarse, acoarse)
-    convergence = 0.0
-    
-    do i = 1, n_nodes
-      convergence = convergence + abs(rescoarse(i))
-    end do
-    
-  cnt = cnt + 1
-  end do
-  print *, 'CG iterations: ', cnt
-  deallocate(rescoarse, zcoarse)
-end subroutine conjugategradient_coarse
-
-
-
-subroutine conjugategradient(a, LM, rglob, z, res, BCs)
+subroutine conjugategradient(kel, a, LM, rglob, z, res, BCs)
 ! solves K * a = rglob using the conjugate gradient method
 
   implicit none
-  real(8), intent(inout) :: a(:)     ! resultant vector
+  real(8), intent(inout) :: a(:)         ! resultant vector
   real(8), intent(inout) :: z(:), res(:) ! CG vectors
-  real(8), intent(in)    :: rglob(:) ! rhs vector
-  integer, intent(in)    :: LM(:, :) ! location matrix for multiplication
-  integer, intent(in)    :: BCs(:)   ! BC nodes 
+  real(8), intent(in)    :: rglob(:)     ! rhs vector
+  real(8), intent(in)    :: kel(:, :)    ! elementary stiffness matrix
+  integer, intent(in)    :: LM(:, :)     ! location matrix for multiplication
+  integer, intent(in)    :: BCs(:)       ! BC nodes 
   
+  ! local variables
+  real(8) :: lambda, theta
+  integer :: cnt
 
   res         = rglob - sparse_mult(kel, LM, a)
   z           = res
@@ -478,7 +436,7 @@ subroutine conjugategradient(a, LM, rglob, z, res, BCs)
   res         = rglob - sparse_mult(kel, LM, a)
   convergence = 0.0
  
-  do i = 1, n_nodes
+  do i = 1, size(res)
     convergence = convergence + abs(res(i))
   end do
   
@@ -492,7 +450,7 @@ subroutine conjugategradient(a, LM, rglob, z, res, BCs)
     res         = rglob - sparse_mult(kel, LM, a)
     convergence = 0.0
     
-    do i = 1, n_nodes
+    do i = 1, size(res)
       convergence = convergence + abs(res(i))
     end do
     
