@@ -20,18 +20,19 @@ real(8)  :: start              ! holds start run time
 real(8)  :: finish             ! holds end run time
 
 ! variables to define the global problem
-integer  :: n_el               ! number of (local) elements
 integer  :: n_el_global        ! number of (global) elements
-integer  :: n_nodes            ! number of (local) nodes
 integer  :: n_nodes_global     ! number of (global) nodes
-integer  :: order              ! polynomial order
 integer  :: n_qp               ! number of quadrature points
-real(8) :: length              ! length of the domain (1-D)
-real(8) :: h                   ! length of one element
-real(8) :: k                   ! thermal conductivity
-real(8) :: source              ! uniform heat source
-real(8) :: leftBC              ! left Dirichlet boundary condition value
-real(8) :: rightBC             ! right Dirichlet boundary condition value
+real(8)  :: length             ! length of the domain (1-D)
+real(8)  :: h                  ! length of one element
+real(8)  :: k                  ! thermal conductivity
+real(8)  :: source             ! uniform heat source
+real(8)  :: leftBC             ! left Dirichlet boundary condition value
+real(8)  :: rightBC            ! right Dirichlet boundary condition value
+
+! variables to define the local problem
+integer  :: n_el               ! number of (local) elements
+integer  :: n_nodes            ! number of (local) nodes
 
 ! variables to define the CG solver
 integer :: cnt                 ! number of CG iterations
@@ -43,7 +44,6 @@ real(8) :: m                   ! slope of line
 integer  :: numprocs           ! number of processors
 integer  :: maxperproc         ! maximum number of elements per processor
 integer  :: rank               ! processor rank
-integer  :: iter               ! domain decomposition solution iteration counter
 integer  :: ddcnt              ! domain decomposition counter
 real(8)  :: itererror          ! whole-loop iteration error
 real(8)  :: ddtol              ! domain decomposition loop tolerance
@@ -76,28 +76,27 @@ integer, dimension(:, :), allocatable :: edges    ! nodes on edge of each domain
 integer, dimension(:, :), allocatable :: LM       ! location matrix
 
 ! variables to define the coarse-mesh solution
-real(8), dimension(:), allocatable    :: hlocal      ! coarse element lengths
-real(8), dimension(:), allocatable    :: zcoarse     ! coarse CG vector
-real(8), dimension(:), allocatable    :: rescoarse   ! coarse CG residual vector 
-real(8), dimension(:), allocatable    :: rglobcoarse ! global load vector, coarse mesh
-real(8), dimension(:), allocatable    :: xcoarse     ! coordinates of the shared nodes
-real(8), dimension(:), allocatable    :: acoarse     ! coarse-mesh solution
+real(8), dimension(:),    allocatable :: hlocal      ! coarse element lengths
+real(8), dimension(:),    allocatable :: zcoarse     ! coarse CG vector
+real(8), dimension(:),    allocatable :: rescoarse   ! coarse CG residual vector 
+real(8), dimension(:),    allocatable :: rglobcoarse ! global load vector, coarse mesh
+real(8), dimension(:),    allocatable :: xcoarse     ! coordinates of the shared nodes
+real(8), dimension(:),    allocatable :: acoarse     ! coarse-mesh solution
 real(8), dimension(:, :), allocatable :: BCcoarse    ! coarse solution BCs
 integer, dimension(:, :), allocatable :: LMcoarse    ! location matrix of coarse problem
 
 k = 1.0        ! thermal conductivity
 source = 10.0  ! heat source
 tol = 0.0001   ! CG convergence tolerance
-ddtol = 0.0005 ! domain decomposition loop tolerance
-order = 1      ! only works for linear elements
+ddtol = 0.0001 ! domain decomposition loop tolerance
 
 call cpu_time(start)
 
 ! initialize variables that are known to all MPI processes
 call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
-call initialize(h, x, n_el, order, n_nodes)       ! initialize problem vars
-call quadrature(order, n_qp)                      ! initialize quadrature
-call phi_val(order, qp)                           ! initialize shape functions
+call initialize(h, x, n_el, n_nodes)              ! initialize problem vars
+call quadrature(n_qp)                             ! initialize quadrature
+call phi_val(qp)                                  ! initialize shape functions
 call elementalmatrices()                          ! form elemental matrices and vectors
 
 n_nodes_global = n_nodes
@@ -240,9 +239,9 @@ do while (itererror > ddtol)
   ! compute iteration error to determine whether to continue looping -------------- 
   call mpi_barrier(mpi_comm_world, ierr)
 
-  call mpi_allreduce(abs(BCvals(2) - prev(2) + BCvals(1) - prev(1)), itererror, 1, mpi_real8, mpi_sum, &
-             mpi_comm_world, ierr)  
-  
+  call mpi_allreduce(abs(BCvals(2) - prev(2) + BCvals(1) - prev(1)), itererror, 1, & 
+                     mpi_real8, mpi_sum, mpi_comm_world, ierr)  
+ 
   call mpi_barrier(mpi_comm_world, ierr)
   ddcnt = ddcnt + 1
 end do ! ends outermost domain decomposition loop
@@ -253,7 +252,6 @@ call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
                     0, mpi_comm_world, ierr)
 
 ! write results to output file ----------------------------------------------------
-
 if (rank == 0) then
   soln(n_nodes_global) = rightBC 
   ! write to an output file. If this file exists, it will be re-written.
@@ -361,9 +359,7 @@ subroutine globalload()
   implicit none
   rglob = 0.0
   do q = 1, n_el
-    do i = 1, 2
-      rglob(LM(i, q)) = rglob(LM(i, q)) + rel(i)
-    end do
+      rglob(LM(:, q)) = rglob(LM(:, q)) + rel(:)
   end do
 end subroutine globalload
 
@@ -515,44 +511,29 @@ subroutine locationmatrix(LM, n_el)
   integer                :: j
   
   do j = 1, n_el
-    LM(1, j) = j
-    LM(2, j) = j + 1
+    LM(:, j) = (/ j, j + 1 /)
   end do
 end subroutine locationmatrix
 
-subroutine phi_val(order, qp)
+subroutine phi_val(qp)
 ! populate phi and dphi, which are global to the calling program
   implicit none
-  integer,  intent(in)  :: order
   real(8), intent(in)  :: qp(:)
 
-  allocate(phi(order + 1, n_qp), stat = AllocateStatus)
+  allocate(phi(2, n_qp), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
-  allocate(dphi(order + 1, n_qp), stat = AllocateStatus)
+  allocate(dphi(2, n_qp), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of dphi array failed."
 
-  select case(order)
-    case(1)
-      phi(1, :)  = (1.0 - qp(:)) / 2.0
-      phi(2, :)  = (1.0 + qp(:)) / 2.0
-      dphi(1, :) = -1.0 / 2.0
-      dphi(2, :) =  1.0 / 2.0
-    case(2)
-      phi(1, :)  = qp(:) * (qp(:) - 1.0) / 2.0
-      phi(2, :)  = (1.0 - qp(:)) * (1.0 + qp(:))
-      phi(3, :)  = qp(:) * (qp(:) + 1.0) / 2.0
-      dphi(1, :) = (2.0 * qp(:) - 1.0) / 2.0
-      dphi(2, :) = 1.0 - qp(:) * qp(:)
-      dphi(3, :) = (2.0 * qp(:) + 1.0) / 2.0
-    case default
-      write(*,*) "polynomial order not supported."
-  end select
+  phi(1, :)  = (1.0 - qp(:)) / 2.0
+  phi(2, :)  = (1.0 + qp(:)) / 2.0
+  dphi(1, :) = -1.0 / 2.0
+  dphi(2, :) =  1.0 / 2.0
 end subroutine phi_val
 
 
-subroutine quadrature(order, n_qp)
+subroutine quadrature(n_qp)
   implicit none
-  integer, intent(in)  :: order
   integer, intent(out) :: n_qp
   
   n_qp = 2
@@ -562,19 +543,8 @@ subroutine quadrature(order, n_qp)
   allocate(wt(n_qp), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of wt array failed."
   
-  select case(n_qp)
-    case(1)
-      qp = (/ 0.0 /)
-      wt = (/ 2.0 /)
-    case(2)
-      qp = (/ -1.0/sqrt(3.0), 1.0/sqrt(3.0) /)
-      wt = (/ 1.0, 1.0 /)
-    case(3)
-      qp = (/ -sqrt(3.0/5.0), 0.0, sqrt(3.0/5.0) /)
-      wt = (/ 5.0/9.0, 8.0/9.0, 5.0/9.0 /)
-    case default
-      write(*,*) "Error in selecting quadrature rule."
-  end select
+  qp = (/ -1.0/sqrt(3.0), 1.0/sqrt(3.0) /)
+  wt = (/ 1.0, 1.0 /)
 end subroutine quadrature
 
 
@@ -612,18 +582,17 @@ subroutine commandline(n_el, length, leftBC, rightBC)
 end subroutine commandline
 
 
-subroutine initialize(h, x, n_el, order, n_nodes)
+subroutine initialize(h, x, n_el, n_nodes)
   implicit none
   real(8), intent(out) :: h 
   integer, intent(in)  :: n_el    
-  integer, intent(in)  :: order   
   integer, intent(out) :: n_nodes 
   real(8), dimension(:), allocatable, intent(out) :: x 
 
   integer :: i ! looping variable
 
   h = length / real(n_el)
-  n_nodes = (order + 1) * n_el - (n_el - 1)
+  n_nodes = n_el + 1 
 
   ! allocate memory for the vector of node coordinates
   allocate(x(n_nodes), stat = AllocateStatus)
