@@ -86,8 +86,6 @@ integer, dimension(:, :), allocatable :: LM       ! location matrix
 real(8), dimension(:), allocatable :: rglobcoarse ! global load vector, coarse mesh
 real(8), dimension(:), allocatable :: xcoarse     ! coordinates of the shared nodes
 real(8), dimension(:), allocatable :: acoarse     ! coarse-mesh solution
-real(8), dimension(:), allocatable :: zcoarse     ! CG update iterates
-real(8), dimension(:), allocatable :: rescoarse   ! solution residual
 real(8), dimension(:, :), allocatable :: BCcoarse ! coarse solution BCs
 integer, dimension(:, :), allocatable :: LMcoarse ! location matrix of coarse problem
 
@@ -124,6 +122,7 @@ end if
 call allocatedecomp()                     ! allocate space for decompsition data
 call initializedecomp()                   ! initialize domain decomposition
 
+
 ! perform a coarse solution to get initial guesses for the interface values
 ! this only needs to be performed by the rank 0 process
 if (rank == 0) then
@@ -139,10 +138,6 @@ if (rank == 0) then
   if (AllocateStatus /= 0) STOP "Allocation of rglobcoarse array failed."
   allocate(acoarse(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of acoarse array failed."
-  allocate(zcoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of zcoarse array failed."
-  allocate(rescoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rescoarse array failed."
 
   xcoarse(1) = x(edges(1, 1))
   do i = 2, n_nodes
@@ -166,15 +161,24 @@ if (rank == 0) then
       rglobcoarse(LMcoarse(i, q)) = rglobcoarse(LMcoarse(i, q)) + rel(i)
     end do
   end do
-  
+
+
+  print *, 'rglob: ', rglobcoarse
+  print *, 'LM: ', LMcoarse
+
+  ! slope of the coarse-mesh solution
+  m = (rightBC - leftBC) / length
+   
   ! initial guess is a straight line between the two endpoints
   acoarse = m * (xcoarse - xcoarse(1)) + BCvals(1)
-  
+
   rglobcoarse(BCs(1)) = BCvals(1)
   rglobcoarse(BCs(2)) = BCvals(2)   
  
-  call conjugategradient_coarse(acoarse)
- 
+  call conjugategradient_coarse(acoarse, LMcoarse, rglobcoarse)
+  
+  print *, 'coarse solution: ', acoarse
+  
   ! insert first-guess BCs into BCcoarse array, then broadcast to all processes
   BCcoarse(1, 1) = acoarse(1)
   BCcoarse(2, numprocs) = acoarse(n_nodes)
@@ -184,9 +188,10 @@ if (rank == 0) then
     BCcoarse(1, i + 1) = acoarse(i + 1)
   end do
 
-  deallocate(xcoarse, LMcoarse, rglobcoarse, acoarse, zcoarse, rescoarse)  
+  deallocate(xcoarse, LMcoarse, rglobcoarse, acoarse)  
 end if
 
+call mpi_barrier(mpi_comm_world, ierr)
 call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
 
 ! save values to be used by each processor - these are private for each individual domain
@@ -206,6 +211,7 @@ call locationmatrix()                          ! form the location matrix
 call globalload()                              ! form the global load vector
 
 ! initial guess is a straight line between the two endpoints
+m = (BCvals(2) - BCvals(1)) / (xel(n_nodes) - xel(1))
 a = m * (xel - xel(1)) + BCvals(1)
 
 ddcnt = 0
@@ -218,7 +224,7 @@ do while (itererror > ddtol)
   rglob(BCs(1)) = BCvals(1)
   rglob(BCs(2)) = BCvals(2)   
  
-  call conjugategradient(a)
+  call conjugategradient(a, LM, rglob, z, res, BCs)
   
   ! each processor sends a boundary value to the processor to the right -----------
   if (rank /= numprocs - 1) then
@@ -402,13 +408,26 @@ subroutine elementalmatrices()
 end subroutine elementalmatrices
 
 
-subroutine conjugategradient_coarse(acoarse)
+subroutine conjugategradient_coarse(acoarse, LMcoarse, rglobcoarse)
   implicit none
   real(8), intent(inout) :: acoarse(:)
+  real(8), intent(in) :: rglobcoarse(:)
+  integer, intent(in) :: LMcoarse(:, :)
+
+  real(8) :: lambda, theta, convergence
+  real(8), dimension(:), allocatable :: zcoarse, rescoarse 
+ 
+  allocate(zcoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of zcoarse array failed."
+  allocate(rescoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rescoarse array failed."
+  
 
   rescoarse   = rglobcoarse - sparse_mult(kel, LMcoarse, acoarse)
+  print *, 'rescoarse: ', rescoarse
   zcoarse     = rescoarse
   lambda      = dotprod(zcoarse, rescoarse)/dotprod(zcoarse, sparse_mult(kel, LMcoarse, zcoarse))
+  print *, 'lambda: ', lambda
   acoarse     = acoarse + lambda * zcoarse
   rescoarse   = rglobcoarse - sparse_mult(kel, LMcoarse, acoarse)
   convergence = 0.0
@@ -416,13 +435,15 @@ subroutine conjugategradient_coarse(acoarse)
   do i = 1, n_nodes
     convergence = convergence + abs(rescoarse(i))
   end do
+
+  print *, 'convergence: ', convergence
   
   cnt = 0
   do while (convergence > tol)
-    theta       = sparse_mult_dot(kel, LMcoarse, zcoarse, rescoarse) &
-                  / sparse_mult_dot(kel, LMcoarse, zcoarse, zcoarse)
+    theta       = sparse_mult_dot(kel, LMcoarse, zcoarse, rescoarse, BCs) &
+                  / sparse_mult_dot(kel, LMcoarse, zcoarse, zcoarse, BCs)
     zcoarse     = rescoarse - theta * zcoarse
-    lambda      = dotprod(zcoarse, rescoarse) / sparse_mult_dot(kel, LMcoarse, zcoarse, zcoarse)
+    lambda      = dotprod(zcoarse, rescoarse) / sparse_mult_dot(kel, LMcoarse, zcoarse, zcoarse, BCs)
     acoarse     = acoarse + lambda * zcoarse
     rescoarse   = rglobcoarse - sparse_mult(kel, LMcoarse, acoarse)
     convergence = 0.0
@@ -433,13 +454,22 @@ subroutine conjugategradient_coarse(acoarse)
     
   cnt = cnt + 1
   end do
+  print *, 'CG iterations: ', cnt
+  deallocate(rescoarse, zcoarse)
 end subroutine conjugategradient_coarse
 
 
 
-subroutine conjugategradient(a)
+subroutine conjugategradient(a, LM, rglob, z, res, BCs)
+! solves K * a = rglob using the conjugate gradient method
+
   implicit none
-  real(8), intent(inout) :: a(:)
+  real(8), intent(inout) :: a(:)     ! resultant vector
+  real(8), intent(inout) :: z(:), res(:) ! CG vectors
+  real(8), intent(in)    :: rglob(:) ! rhs vector
+  integer, intent(in)    :: LM(:, :) ! location matrix for multiplication
+  integer, intent(in)    :: BCs(:)   ! BC nodes 
+  
 
   res         = rglob - sparse_mult(kel, LM, a)
   z           = res
@@ -454,10 +484,10 @@ subroutine conjugategradient(a)
   
   cnt = 0
   do while (convergence > tol)
-    theta       = sparse_mult_dot(kel, LM, z, res) &
-                  / sparse_mult_dot(kel, LM, z, z)
+    theta       = sparse_mult_dot(kel, LM, z, res, BCs) &
+                  / sparse_mult_dot(kel, LM, z, z, BCs)
     z           = res - theta * z
-    lambda      = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z)
+    lambda      = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z, BCs)
     a           = a + lambda * z
     res         = rglob - sparse_mult(kel, LM, a)
     convergence = 0.0
@@ -480,10 +510,8 @@ end function kronecker
 
 real function dotprod(vec1, vec2)
   implicit none
-  real(8) :: vec1(:)
-  real(8) :: vec2(:)
-
-  integer  :: i ! looping variable
+  real(8)  :: vec1(:), vec2(:)
+  integer  :: i
 
   dotprod = 0.0  
   do i = 1, size(vec1)
@@ -491,21 +519,24 @@ real function dotprod(vec1, vec2)
   end do
 end function dotprod
 
-function sparse_mult_dot(matrix, LM, vector, vecdot)
+
+function sparse_mult_dot(matrix, LM, vector, vecdot, BCs)
   implicit none
-  real(8) :: matrix(:, :) ! elementary matrix (assumed-shape array)
-  real(8) :: vector(:)    ! full vector (assumed-shape array)
-  real(8) :: vecdot(:)
-  integer  :: LM(:, :)     ! location matrix
+  real(8) :: matrix(:, :) ! elementary matrix
+  real(8) :: vector(:)    ! full vector
+  real(8) :: vecdot(:)    ! vector to take dot product with
+  integer :: LM(:, :)     ! location matrix
+  integer :: BCs(:)       ! list of BC nodes
  
   ! return value of function
   real(8) :: sparse_mult_dot
+
   integer  :: i, j, q ! looping variables
  
   sparse_mult_dot = 0.0
   do q = 1, n_el ! loop over the elements
     do i = 1, n_en ! loop over all entries in kel
-      if (any(BCs == LM(i, q))) then 
+      if (any(BCs == LM(i, q))) then ! apply boundary conditions
         do j = 1, n_en
           sparse_mult_dot = sparse_mult_dot + vecdot(LM(i, q)) * kronecker(LM(i, q), LM(j, q)) * vector(LM(j, q))
         end do
