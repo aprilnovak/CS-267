@@ -16,13 +16,12 @@ include 'mpif.h'
 ! variables for overall execution
 integer  :: AllocateStatus     ! variable to hold memory allocation success
 integer  :: i, j, q            ! loop iteration variables
-real(8) :: start               ! holds start run time
-real(8) :: finish              ! holds end run time
+real(8)  :: start              ! holds start run time
+real(8)  :: finish             ! holds end run time
 
 ! variables to define the global problem
 integer  :: n_el               ! number of (local) elements
 integer  :: n_el_global        ! number of (global) elements
-integer  :: n_en               ! number of nodes per element
 integer  :: n_nodes            ! number of (local) nodes
 integer  :: n_nodes_global     ! number of (global) nodes
 integer  :: order              ! polynomial order
@@ -35,25 +34,20 @@ real(8) :: leftBC              ! left Dirichlet boundary condition value
 real(8) :: rightBC             ! right Dirichlet boundary condition value
 
 ! variables to define the CG solver
-integer  :: cnt                ! number of CG iterations
+integer :: cnt                 ! number of CG iterations
 real(8) :: convergence         ! difference between CG iterations
 real(8) :: tol                 ! CG convergence tolerance
-real(8) :: startCG             ! start, CG
-real(8) :: endCG               ! end, CG
 real(8) :: m                   ! slope of line
 
 ! parallel variables
 integer  :: numprocs           ! number of processors
 integer  :: maxperproc         ! maximum number of elements per processor
 integer  :: rank               ! processor rank
-integer  :: face               ! ID number of interface problem
 integer  :: iter               ! domain decomposition solution iteration counter
-integer  :: leftnode           ! node number at left of interface layer
-integer  :: rightnode          ! node number at right of interface layer
 integer  :: ddcnt              ! domain decomposition counter
-real(8) :: itererror           ! whole-loop iteration error
-real(8) :: ddtol               ! domain decomposition loop tolerance
-integer :: ierr                ! holds error state for MPI calls
+real(8)  :: itererror          ! whole-loop iteration error
+real(8)  :: ddtol              ! domain decomposition loop tolerance
+integer  :: ierr               ! holds error state for MPI calls
 
 integer, dimension(mpi_status_size) :: stat ! MPI send/receive status
 
@@ -67,28 +61,29 @@ integer, dimension(2)              :: BCs         ! boundary condition nodes
 real(8), dimension(:), allocatable :: qp          ! quadrature points
 real(8), dimension(:), allocatable :: wt          ! quadrature weights
 real(8), dimension(:), allocatable :: x           ! coordinates of the nodes
-real(8), dimension(:), allocatable :: rel         ! elemental load vector
+real(8), dimension(2)              :: rel         ! elemental load vector
 real(8), dimension(:), allocatable :: rglob       ! global load vector
 real(8), dimension(:), allocatable :: a           ! CG solution iterates
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
-real(8), dimension(:), allocatable :: hlocal      ! coarse element lengths
 
 real(8), dimension(2)                 :: BClocals ! values of BCs for each interface
 real(8), dimension(2)                 :: BCvals   ! values of BCs for each domain
-real(8), dimension(:, :), allocatable :: kel      ! elemental stiffness matrix
+real(8), dimension(2, 2)              :: kel      ! elemental stiffness matrix
 real(8), dimension(:, :), allocatable :: phi      ! shape functions
 real(8), dimension(:, :), allocatable :: dphi     ! shape function derivatives
 integer, dimension(:, :), allocatable :: edges    ! nodes on edge of each domain
 integer, dimension(:, :), allocatable :: LM       ! location matrix
 
-real(8), dimension(:), allocatable :: zcoarse     ! coarse CG vector
-real(8), dimension(:), allocatable :: rescoarse   ! coarse CG residual vector 
-real(8), dimension(:), allocatable :: rglobcoarse ! global load vector, coarse mesh
-real(8), dimension(:), allocatable :: xcoarse     ! coordinates of the shared nodes
-real(8), dimension(:), allocatable :: acoarse     ! coarse-mesh solution
-real(8), dimension(:, :), allocatable :: BCcoarse ! coarse solution BCs
-integer, dimension(:, :), allocatable :: LMcoarse ! location matrix of coarse problem
+! variables to define the coarse-mesh solution
+real(8), dimension(:), allocatable    :: hlocal      ! coarse element lengths
+real(8), dimension(:), allocatable    :: zcoarse     ! coarse CG vector
+real(8), dimension(:), allocatable    :: rescoarse   ! coarse CG residual vector 
+real(8), dimension(:), allocatable    :: rglobcoarse ! global load vector, coarse mesh
+real(8), dimension(:), allocatable    :: xcoarse     ! coordinates of the shared nodes
+real(8), dimension(:), allocatable    :: acoarse     ! coarse-mesh solution
+real(8), dimension(:, :), allocatable :: BCcoarse    ! coarse solution BCs
+integer, dimension(:, :), allocatable :: LMcoarse    ! location matrix of coarse problem
 
 k = 1.0        ! thermal conductivity
 source = 10.0  ! heat source
@@ -100,7 +95,7 @@ call cpu_time(start)
 
 ! initialize variables that are known to all MPI processes
 call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
-call initialize(h, x, n_en, n_el, order, n_nodes) ! initialize problem vars
+call initialize(h, x, n_el, order, n_nodes)       ! initialize problem vars
 call quadrature(order, n_qp)                      ! initialize quadrature
 call phi_val(order, qp)                           ! initialize shape functions
 call elementalmatrices()                          ! form elemental matrices and vectors
@@ -135,55 +130,43 @@ if (rank == 0) then
   if (AllocateStatus /= 0) STOP "Allocation of xcoarse array failed."
   allocate(hlocal(n_el), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of hlocal array failed."
-  allocate(LMcoarse(n_en, n_el), stat = AllocateStatus)
+  allocate(LMcoarse(2, n_el), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of LMcoarse array failed."
   allocate(rglobcoarse(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rglobcoarse array failed."
   allocate(acoarse(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of acoarse array failed."
-
   allocate(zcoarse(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of zcoarse array failed."
   allocate(rescoarse(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rescoarse array failed."
 
-
   xcoarse(1) = x(edges(1, 1))
   do i = 2, n_nodes
     xcoarse(i) = x(edges(2, i - 1))
+    hlocal(i - 1) = xcoarse(i) - xcoarse(i - 1)
   end do
 
-  do i = 1, n_el
-    hlocal(i) = xcoarse(i + 1) - xcoarse(i)
-  end do
-
-  BCs = (/ 1, n_nodes /) 
+  BCs    = (/ 1, n_nodes /) 
   BCvals = (/ leftBC, rightBC /)
-  
-  ! forn the location matrix
-  do j = 1, n_el
-    do i = 1, n_en
-      LMcoarse(i, j) = (j - 1) * (n_en - 1) + i
-    end do
-  end do
+
+  call locationmatrix(LMcoarse, n_el)      ! form the location matrix
   
   ! form the global load vector
   rglobcoarse = 0.0
   do q = 1, n_el
-    do i = 1, n_en
-      rglobcoarse(LMcoarse(i, q)) = rglobcoarse(LMcoarse(i, q)) + hlocal(q) * hlocal(q) * rel(i) / (h * h)
+    do i = 1, 2
+      rglobcoarse(LMcoarse(i, q)) = rglobcoarse(LMcoarse(i, q)) &
+                                    + hlocal(q) * hlocal(q) * rel(i) / (h * h)
     end do
   end do
-
-  ! slope of the coarse-mesh solution
-  m = (rightBC - leftBC) / length
-   
-  ! initial guess is a straight line between the two endpoints
-  acoarse = m * (xcoarse - xcoarse(1)) + BCvals(1)
-
   rglobcoarse(BCs(1)) = BCvals(1)
   rglobcoarse(BCs(2)) = BCvals(2)   
-  
+
+  ! initial guess is a straight line between the two endpoints
+  m = (rightBC - leftBC) / length
+  acoarse = m * (xcoarse - xcoarse(1)) + BCvals(1)
+
   call conjugategradient(kel, acoarse, LMcoarse, rglobcoarse, zcoarse, rescoarse, BCs)
   
   ! insert first-guess BCs into BCcoarse array, then broadcast to all processes
@@ -195,26 +178,23 @@ if (rank == 0) then
     BCcoarse(1, i + 1) = acoarse(i + 1)
   end do
 
-  deallocate(xcoarse, LMcoarse, rglobcoarse, acoarse)  
+  deallocate(xcoarse, LMcoarse, rglobcoarse, acoarse, hlocal)  
 end if
 
-call mpi_barrier(mpi_comm_world, ierr)
 call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
 
-! save values to be used by each processor - these are private for each individual domain
+! Specify the domain decomposition parameters for each separate domain
 n_el    = elems(rank + 1)
 n_nodes = numnodes(rank + 1)
 
 call allocateDDdata()
 
-xel     = x(edges(1, rank + 1):edges(2, rank + 1))
-BCs     = (/1, n_nodes/)
-
-! assign the initial boundary conditions given the rank of the calling process
+xel       = x(edges(1, rank + 1):edges(2, rank + 1))
+BCs       = (/1, n_nodes/)
 BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
 
-call locationmatrix()                          ! form the location matrix
+call locationmatrix(LM, n_el)            ! form the location matrix
 call globalload()                              ! form the global load vector
 
 ! initial guess is a straight line between the two endpoints
@@ -234,13 +214,11 @@ do while (itererror > ddtol)
   
   ! each processor sends a boundary value to the processor to the right -----------
   if (rank /= numprocs - 1) then
-    ! tag of the message is _rank_
     call mpi_send(a(n_nodes - 1), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
   end if
 
   ! processor to the right receives the message -----------------------------------
   if (rank /= 0) then
-    ! tag of the message is rank - 1, since it is the rank of the sending process
     call mpi_recv(BClocals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
     ! assign other local boundary condition
     BClocals(2) = a(2)
@@ -251,7 +229,6 @@ do while (itererror > ddtol)
     BCvals(1) = (rel(2) + rel(1) - kel(2, 1) * BClocals(2) &
                       - kel(1, 2) * BClocals(1)) / (kel(2, 2) + kel(1, 1))
     ! send new interface result to rank - 1 process (to BCvals(2) of rank - 1)
-    ! tag is _rank_
     call mpi_send(BCvals(1), 1, mpi_real8, rank - 1, rank, mpi_comm_world, ierr)
   end if
 
@@ -284,13 +261,12 @@ if (rank == 0) then
   if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 
   write(1, *) numprocs, n_el_global, ddcnt, soln
-  !write(1, *) soln(:)
 end if
 
 ! final timing results ----------------------------------------------------------
 if (rank == 0) then
   call cpu_time(finish)
-  print *, 'P: ', numprocs, 'n_el: ', n_el, 'runtime: ', finish - start
+  print *, 'P: ', numprocs, 'n_el: ', n_el_global, 'runtime: ', finish - start
 end if
 
 ! deallocate memory -------------------------------------------------------------
@@ -301,7 +277,7 @@ if (rank == 0) deallocate(soln)
 
 call mpi_finalize(ierr)
 
-deallocate(x, qp, wt, phi, dphi, kel, rel)
+deallocate(x, qp, wt, phi, dphi)
 
 ! ------------------------------------------------------------------------------
 
@@ -312,7 +288,7 @@ subroutine allocateDDdata()
   implicit none
   allocate(xel(numnodes(rank + 1)), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
-  allocate(LM(n_en, n_el), stat = AllocateStatus)
+  allocate(LM(2, n_el), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
   allocate(rglob(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
@@ -361,13 +337,13 @@ subroutine initializedecomp()
  
   ! assign the numbers of nodes in each domain 
   do j = 1, numprocs
-    numnodes(j) = elems(j) * n_en - (elems(j) - 1)
+    numnodes(j) = elems(j) * 2 - (elems(j) - 1)
   end do
   
   ! assign the global node numbers that correspond to the edges of each domain
-  edges(:, 1) = (/1, elems(1) * n_en - (elems(1) - 1)/)
+  edges(:, 1) = (/1, elems(1) * 2 - (elems(1) - 1)/)
   do i = 2, numprocs
-    edges(:, i) = (/edges(2, i - 1), edges(2, i - 1) + elems(i) * n_en - elems(i) /)
+    edges(:, i) = (/edges(2, i - 1), edges(2, i - 1) + elems(i) * 2 - elems(i) /)
   end do
   
   ! assign an initial itererror (dummy value to enter the loop)
@@ -385,7 +361,7 @@ subroutine globalload()
   implicit none
   rglob = 0.0
   do q = 1, n_el
-    do i = 1, n_en
+    do i = 1, 2
       rglob(LM(i, q)) = rglob(LM(i, q)) + rel(i)
     end do
   end do
@@ -395,19 +371,14 @@ end subroutine globalload
 subroutine elementalmatrices()
   implicit none
 
-  allocate(kel(n_en, n_en), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of kel array failed."
-  allocate(rel(n_en), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rel array failed."
-
   kel = 0.0
   rel = 0.0
   do q = 1, n_qp
-    do i = 1, n_en
+    do i = 1, 2
       rel(i) = rel(i) + wt(q) * source * phi(i, q) * h * h / 2.0
-      do j = 1, n_en
-        kel(i, j) = kel(i, j) + wt(q) * dphi(i, q) * k * dphi(j, q) * 2.0
-      end do
+      
+      kel(i, 1) = kel(i, 1) + wt(q) * dphi(i, q) * k * dphi(1, q) * 2.0
+      kel(i, 2) = kel(i, 2) + wt(q) * dphi(i, q) * k * dphi(2, q) * 2.0
     end do
   end do
 end subroutine elementalmatrices
@@ -492,16 +463,16 @@ function sparse_mult_dot(matrix, LM, vector, vecdot, BCs)
  
   sparse_mult_dot = 0.0
   do q = 1, n_el ! loop over the elements
-    do i = 1, n_en ! loop over all entries in kel
+    do i = 1, 2 ! loop over all entries in kel
       if (any(BCs == LM(i, q))) then ! apply boundary conditions
-        do j = 1, n_en
-          sparse_mult_dot = sparse_mult_dot + vecdot(LM(i, q)) * kronecker(LM(i, q), LM(j, q)) * vector(LM(j, q))
-        end do
+          sparse_mult_dot = sparse_mult_dot + & 
+                            vecdot(LM(i, q)) * kronecker(LM(i, q), LM(1, q)) * vector(LM(1, q)) + &
+                            vecdot(LM(i, q)) * kronecker(LM(i, q), LM(2, q)) * vector(LM(2, q))
       else
         ! implicitly assumes that the matrix is symmetric (ok for this application)
-        do j = 1, n_en
-          sparse_mult_dot = sparse_mult_dot + vecdot(LM(i, q)) * matrix(j, i) * vector(LM(j, q))
-        end do
+          sparse_mult_dot = sparse_mult_dot + &
+                            vecdot(LM(i, q)) * matrix(1, i) * vector(LM(1, q)) + &
+                            vecdot(LM(i, q)) * matrix(2, i) * vector(LM(2, q))
       end if
     end do
   end do
@@ -521,33 +492,31 @@ function sparse_mult(matrix, LM, vector)
   sparse_mult = 0.0
    
   do q = 1, n_el ! loop over the elements
-    do i = 1, n_en ! loop over all entries in kel
+    do i = 1, 2 ! loop over all entries in kel
       if (any(BCs == LM(i, q))) then 
-        do j = 1, n_en
           ! diagonal terms set to 1.0, off-diagonal set to 0.0
           sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
-                       kronecker(LM(i, q), LM(j, q)) * vector(LM(j, q))
-        end do
+                                  kronecker(LM(i, q), LM(1, q)) * vector(LM(1, q)) + &
+                                  kronecker(LM(i, q), LM(2, q)) * vector(LM(2, q))
       else
-        do j = 1, n_en
-          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + matrix(i, j) * vector(LM(j, q))
-        end do
+          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
+                                  matrix(i, 1) * vector(LM(1, q)) + &
+                                  matrix(i, 2) * vector(LM(2, q))
       end if
     end do
   end do
 end function sparse_mult
 
 
-subroutine locationmatrix()
-  ! forms the location matrix, which is global in the calling program
-  ! fills column-by-column (each column pertains to an element)
+subroutine locationmatrix(LM, n_el)
   implicit none
-  integer :: i, j       ! looping variables
+  integer, intent(inout) :: LM(:, :)
+  integer, intent(in)    :: n_el
+  integer                :: j
   
   do j = 1, n_el
-    do i = 1, n_en
-      LM(i, j) = (j - 1) * (n_en - 1) + i
-    end do
+    LM(1, j) = j
+    LM(2, j) = j + 1
   end do
 end subroutine locationmatrix
 
@@ -583,12 +552,10 @@ end subroutine phi_val
 
 subroutine quadrature(order, n_qp)
   implicit none
-
   integer, intent(in)  :: order
   integer, intent(out) :: n_qp
   
   n_qp = 2
-  !n_qp = ceiling((real(order) + 1.0) / 2.0)
 
   allocate(qp(n_qp), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of qp array failed."
@@ -645,10 +612,9 @@ subroutine commandline(n_el, length, leftBC, rightBC)
 end subroutine commandline
 
 
-subroutine initialize(h, x, n_en, n_el, order, n_nodes)
+subroutine initialize(h, x, n_el, order, n_nodes)
   implicit none
   real(8), intent(out) :: h 
-  integer, intent(out) :: n_en    
   integer, intent(in)  :: n_el    
   integer, intent(in)  :: order   
   integer, intent(out) :: n_nodes 
@@ -657,7 +623,6 @@ subroutine initialize(h, x, n_en, n_el, order, n_nodes)
   integer :: i ! looping variable
 
   h = length / real(n_el)
-  n_en = order + 1
   n_nodes = (order + 1) * n_el - (n_el - 1)
 
   ! allocate memory for the vector of node coordinates
@@ -665,7 +630,7 @@ subroutine initialize(h, x, n_en, n_el, order, n_nodes)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
 
   do i = 1, size(x)
-    x(i) = real(i - 1) * h / real(n_en - 1)
+    x(i) = real(i - 1) * h
   end do
 end subroutine initialize
 
