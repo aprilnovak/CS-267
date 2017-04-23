@@ -72,6 +72,7 @@ real(8), dimension(:), allocatable :: rglob       ! global load vector
 real(8), dimension(:), allocatable :: a           ! CG solution iterates
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
+real(8), dimension(:), allocatable :: hlocal      ! coarse element lengths
 
 real(8), dimension(2)                 :: BClocals ! values of BCs for each interface
 real(8), dimension(2)                 :: BCvals   ! values of BCs for each domain
@@ -132,6 +133,8 @@ if (rank == 0) then
   ! allocate storage for the coarse-mesh CG solve
   allocate(xcoarse(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of xcoarse array failed."
+  allocate(hlocal(n_el), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of hlocal array failed."
   allocate(LMcoarse(n_en, n_el), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of LMcoarse array failed."
   allocate(rglobcoarse(n_nodes), stat = AllocateStatus)
@@ -150,6 +153,10 @@ if (rank == 0) then
     xcoarse(i) = x(edges(2, i - 1))
   end do
 
+  do i = 1, n_el
+    hlocal(i) = xcoarse(i + 1) - xcoarse(i)
+  end do
+
   BCs = (/ 1, n_nodes /) 
   BCvals = (/ leftBC, rightBC /)
   
@@ -164,13 +171,9 @@ if (rank == 0) then
   rglobcoarse = 0.0
   do q = 1, n_el
     do i = 1, n_en
-      rglobcoarse(LMcoarse(i, q)) = rglobcoarse(LMcoarse(i, q)) + rel(i)
+      rglobcoarse(LMcoarse(i, q)) = rglobcoarse(LMcoarse(i, q)) + hlocal(q) * hlocal(q) * rel(i) / (h * h)
     end do
   end do
-
-
-  print *, 'rglob: ', rglobcoarse
-  print *, 'LM: ', LMcoarse
 
   ! slope of the coarse-mesh solution
   m = (rightBC - leftBC) / length
@@ -180,10 +183,8 @@ if (rank == 0) then
 
   rglobcoarse(BCs(1)) = BCvals(1)
   rglobcoarse(BCs(2)) = BCvals(2)   
-
-  call conjugategradient(kel, acoarse, LMcoarse, rglobcoarse, zcoarse, rescoarse, BCs)
   
-  print *, 'coarse solution: ', acoarse
+  call conjugategradient(kel, acoarse, LMcoarse, rglobcoarse, zcoarse, rescoarse, BCs)
   
   ! insert first-guess BCs into BCcoarse array, then broadcast to all processes
   BCcoarse(1, 1) = acoarse(1)
@@ -222,7 +223,6 @@ a = m * (xel - xel(1)) + BCvals(1)
 
 ddcnt = 0
 do while (itererror > ddtol)
-!do while (ddcnt < 5)
   ! save the previous values of the interface BCs
   prev = BCvals
 
@@ -310,7 +310,6 @@ CONTAINS ! define all internal procedures
 
 subroutine allocateDDdata()
   implicit none
-
   allocate(xel(numnodes(rank + 1)), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
   allocate(LM(n_en, n_el), stat = AllocateStatus)
@@ -325,9 +324,9 @@ subroutine allocateDDdata()
   if (AllocateStatus /= 0) STOP "Allocation of res array failed."
 end subroutine allocateDDdata
 
+
 subroutine allocatedecomp()
   implicit none
-
   ! each process has their own copy of this DD information
   allocate(numnodes(numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
@@ -405,7 +404,7 @@ subroutine elementalmatrices()
   rel = 0.0
   do q = 1, n_qp
     do i = 1, n_en
-      rel(i) = rel(i) + wt(q) * source * phi(i, q) * h *h / 2.0
+      rel(i) = rel(i) + wt(q) * source * phi(i, q) * h * h / 2.0
       do j = 1, n_en
         kel(i, j) = kel(i, j) + wt(q) * dphi(i, q) * k * dphi(j, q) * 2.0
       end do
