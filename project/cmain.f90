@@ -55,7 +55,6 @@ integer                               :: numprocs    ! number of processors
 integer                               :: maxperproc  ! maximum number of elements per processor
 integer                               :: rank        ! processor rank
 integer                               :: ddcnt       ! domain decomposition counter
-integer                               :: LMcountmax  ! maximum number of connections
 real(8)                               :: itererror   ! whole-loop iteration error
 real(8)                               :: ddtol       ! domain decomposition loop tolerance
 integer                               :: ierr        ! holds error state for MPI calls
@@ -92,6 +91,7 @@ integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 integer                              :: totalnonzero ! total nonzero elements in kglob
 real(8), dimension(:), allocatable   :: Kvalues   ! array of values in kglob
 integer, dimension(:), allocatable   :: Kcolumns  ! array of columns in kglob
+real(8), dimension(:), allocatable   :: resultant ! product of matrix-vector multiplication
 
 type row
   real(8), allocatable, dimension(:) :: values    ! values in each row
@@ -231,11 +231,11 @@ do i = 1, n_nodes
   totalnonzero = totalnonzero + LMcount(i)
 end do
 
-LMcountmax = maxval(LMcount) ! maximum number of entries in one row
-
 ! allocate space for the data structures
 allocate(rows(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
+allocate(resultant(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of resultant array failed."
 allocate(Kvalues(totalnonzero), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of Kvalues array failed."
 allocate(Kcolumns(totalnonzero), stat = AllocateStatus)
@@ -244,8 +244,8 @@ if (AllocateStatus /= 0) STOP "Allocation of Kcolumns array failed."
 ! allocate space for the elements of the rows data structure
 ! a maximum of LMcountmax is allocated for each, though not all will be used. 
 do i = 1, n_nodes
-  allocate(rows(i)%values(LMcountmax))
-  allocate(rows(i)%columns(LMcountmax))
+  allocate(rows(i)%values(LMcount(i)))
+  allocate(rows(i)%columns(LMcount(i)))
 end do
 
 ! populate vectors of values and the columns they belong in
@@ -266,10 +266,20 @@ end do
 
 
 
-
 ! initial guess is a straight line between the two endpoints
 m = (BCvals(2) - BCvals(1)) / (xel(n_nodes) - xel(1))
 a = m * (xel - xel(1)) + BCvals(1)
+
+
+
+
+! loop over the rows to perform multiplication
+resultant = 2.0
+do i = 1, n_nodes
+  resultant(i) = dot_product(rows(i)%values(:), a(rows(i)%columns(:)))
+end do
+
+
 
 ddcnt = 0
 do while (.false.)
@@ -342,7 +352,7 @@ end if
 ! deallocate memory -------------------------------------------------------------
 deallocate(xel, LM, rglob, a, z, res)
 deallocate(numnodes, elems, edges, recv_displs, BCcoarse, LMcount)
-deallocate(rows, Kvalues, Kcolumns)
+deallocate(rows, Kvalues, Kcolumns, resultant)
 
 if (rank == 0) deallocate(soln)
 
