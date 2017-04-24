@@ -1,0 +1,10 @@
+! namelist file to contain parameters held constant between all
+! FEM runs.
+
+&FEM
+  k      = 1.0
+  source = 10.0
+  n_qp   = 2
+  tol    = 0.0001
+  ddtol  = 0.0001
+/

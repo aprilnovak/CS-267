@@ -86,15 +86,16 @@ integer :: mythread   ! current thread number
 integer :: provided   ! holds provided level of thread support
 integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
+! read in variable values for simulation from namelist
+namelist /FEM/ k, source, n_qp, tol, ddtol
+open(20, file='setup.nml')
+read(20, FEM)
+close(20)
+
 ! test if OMP_NUM_THREADS environment variable is set
 !character(len=100) :: stringthreads
 !call get_environment_variable("OMP_NUM_THREADS", stringthreads)
 !print *, 'number of threads: ', stringthreads
-
-k = 1.0        ! thermal conductivity
-source = 10.0  ! heat source
-tol = 0.0001   ! CG convergence tolerance
-ddtol = 0.0001 ! domain decomposition loop tolerance
 
 call cpu_time(start)
 
@@ -109,10 +110,8 @@ n_nodes_global = n_nodes
 n_el_global = n_el
 
 ! initialize the parallel MPI environment
-print *, 'before'
 ! initialize with mpi_thread_single level of thread support
 call mpi_init_thread(0, provided, ierr)
-print *, 'after'
 call mpi_comm_size(mpi_comm_world, numprocs, ierr)
 call mpi_comm_rank(mpi_comm_world, rank, ierr)
 
@@ -541,11 +540,14 @@ end subroutine phi_val
 subroutine quadrature(qp, wt, n_qp)
   implicit none
   real(8), intent(inout) :: qp(:), wt(:)
-  integer, intent(out)   :: n_qp
-  
-  qp   = (/ -1.0/sqrt(3.0), 1.0/sqrt(3.0) /)
-  wt   = (/ 1.0, 1.0 /)
-  n_qp = size(qp)
+  integer, intent(in)    :: n_qp
+ 
+  if (n_qp == 2) then 
+    qp   = (/ -1.0/sqrt(3.0), 1.0/sqrt(3.0) /)
+    wt   = (/ 1.0, 1.0 /)
+  else
+    print *, 'error in quadrature rule selection.'
+  end if
 end subroutine quadrature
 
 
