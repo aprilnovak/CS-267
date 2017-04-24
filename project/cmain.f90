@@ -92,14 +92,10 @@ open(20, file='setup.nml')
 read(20, FEM)
 close(20)
 
-! test if OMP_NUM_THREADS environment variable is set
-!character(len=100) :: stringthreads
-!call get_environment_variable("OMP_NUM_THREADS", stringthreads)
-!print *, 'number of threads: ', stringthreads
-
 call cpu_time(start)
 
 ! initialize variables that are known to all MPI processes
+! instead of having one process compute these and then broadcast
 call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
 call initialize(h, x, n_el, n_nodes)              ! initialize problem vars
 call quadrature(qp, wt, n_qp)                     ! initialize quadrature
@@ -109,8 +105,7 @@ call elementalmatrices()                          ! form elemental matrices and 
 n_nodes_global = n_nodes
 n_el_global = n_el
 
-! initialize the parallel MPI environment
-! initialize with mpi_thread_single level of thread support
+! initialize the parallel MPI environment with mpi_thread_single level of thread support
 call mpi_init_thread(0, provided, ierr)
 call mpi_comm_size(mpi_comm_world, numprocs, ierr)
 call mpi_comm_rank(mpi_comm_world, rank, ierr)
@@ -124,7 +119,6 @@ end if
 
 call allocatedecomp()                     ! allocate space for decompsition data
 call initializedecomp()                   ! initialize domain decomposition
-
 
 ! perform a coarse solution to get initial guesses for the interface values
 ! this only needs to be performed by the rank 0 process
@@ -338,11 +332,11 @@ subroutine initializedecomp()
   end do
  
   ! assign the numbers of nodes in each domain 
-  !!$omp parallel do default(private) shared(numprocs, elems, numnodes) private(j)
+  !$omp parallel do default(private) shared(numprocs, elems, numnodes) private(j)
   do j = 1, numprocs
     numnodes(j) = elems(j) * 2 - (elems(j) - 1)
   end do
-  !!$omp end parallel do
+  !$omp end parallel do
   
   ! assign the global node numbers that correspond to the edges of each domain
   edges(:, 1) = (/1, elems(1) * 2 - (elems(1) - 1)/)
@@ -514,11 +508,11 @@ subroutine locationmatrix(LM, n_el)
   integer, intent(in)    :: n_el
   integer                :: j
   
-  !!$omp parallel do default(private) shared(n_el, LM) private(j)
+  !$omp parallel do default(private) shared(n_el, LM) private(j)
   do j = 1, n_el
     LM(:, j) = (/ j, j + 1 /)
   end do
-  !!$omp end parallel do
+  !$omp end parallel do
 end subroutine locationmatrix
 
 subroutine phi_val(qp)
@@ -598,11 +592,11 @@ subroutine initialize(h, x, n_el, n_nodes)
   allocate(x(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
 
-  !!$omp parallel do default(private) shared(x, h) private(i)
+  !$omp parallel do default(private) shared(x, h) private(i)
   do i = 1, size(x)
     x(i) = real(i - 1) * h
   end do
-  !!$omp end parallel do
+  !$omp end parallel do
 end subroutine initialize
 
 
