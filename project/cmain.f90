@@ -55,6 +55,7 @@ integer                               :: numprocs    ! number of processors
 integer                               :: maxperproc  ! maximum number of elements per processor
 integer                               :: rank        ! processor rank
 integer                               :: ddcnt       ! domain decomposition counter
+integer                               :: LMcountmax  ! maximum number of connections
 real(8)                               :: itererror   ! whole-loop iteration error
 real(8)                               :: ddtol       ! domain decomposition loop tolerance
 integer                               :: ierr        ! holds error state for MPI calls
@@ -62,6 +63,7 @@ integer, dimension(:, :), allocatable :: edges       ! nodes on edge of each dom
 integer, dimension(:),    allocatable :: recv_displs ! displacement of each domain
 real(8), dimension(:),    allocatable :: xel         ! coordinates in each domain
 integer, dimension(:),    allocatable :: numnodes    ! number of nodes in each domain
+integer, dimension(:),    allocatable :: LMcount     ! number of elements in row i of Kglob
 integer, dimension(:),    allocatable :: elems       ! n_el in each domain
 real(8), dimension(:),    allocatable :: rglob       ! global load vector
 real(8), dimension(:),    allocatable :: a           ! CG solution iterates
@@ -85,6 +87,15 @@ integer :: numthreads ! number of OpenMP threads
 integer :: mythread   ! current thread number
 integer :: provided   ! holds provided level of thread support
 integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
+
+! variables to implement CSR matrix storage
+type row
+  real(8), allocatable, dimension(:) :: values  ! values in each row
+  integer, allocatable, dimension(:) :: columns ! nonzero column numbers in each row
+  integer                            :: entri   ! entry that is next to be filled    
+end type row
+
+type(row), allocatable, dimension(:) :: rows    ! row-type rows in global K matrix
 
 ! read in variable values for simulation from namelist
 namelist /FEM/ k, source, n_qp, tol, ddtol
@@ -196,14 +207,50 @@ BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
 
 call locationmatrix(LM, n_el)            ! form the location matrix
-call globalload()                              ! form the global load vector
+call globalload()                        ! form the global load vector
+
+! implement CSR storage of each domain's global matrix
+LMcount = 0
+do i = 1, 2
+  do j = 1, n_el
+    LMcount(LM(i, j)) = LMcount(LM(i, j)) + 1
+  end do
+end do
+
+! add one to every component beacuse LMcount = 1 means that row has 
+! LMcount + 1 entries (actually (LMcount - 1) + n_en)
+LMcount = LMcount + 1
+if (rank == 0) print *, 'LMcount: ', LMcount
+
+LMcountmax = maxval(LMcount)
+
+! allocate space for the rows data structure
+allocate(rows(n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
+
+! allocate space for the elements of the rows data structure
+do i = 1, n_nodes
+  allocate(rows(i)%values(LMcountmax))
+  allocate(rows(i)%columns(LMcountmax))
+end do
+
+
+
+
+
+
+
+
+
+
 
 ! initial guess is a straight line between the two endpoints
 m = (BCvals(2) - BCvals(1)) / (xel(n_nodes) - xel(1))
 a = m * (xel - xel(1)) + BCvals(1)
 
 ddcnt = 0
-do while (itererror > ddtol)
+do while (.false.)
+!do while (itererror > ddtol)
   ! save the previous values of the interface BCs
   prev = BCvals
 
@@ -271,7 +318,7 @@ end if
 
 ! deallocate memory -------------------------------------------------------------
 deallocate(xel, LM, rglob, a, z, res)
-deallocate(numnodes, elems, edges, recv_displs, BCcoarse)
+deallocate(numnodes, elems, edges, recv_displs, BCcoarse, LMcount)
 
 if (rank == 0) deallocate(soln)
 
@@ -298,6 +345,8 @@ subroutine allocateDDdata()
   if (AllocateStatus /= 0) STOP "Allocation of z array failed."
   allocate(res(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of res array failed."
+  allocate(LMcount(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of LMcount array failed."
 end subroutine allocateDDdata
 
 
