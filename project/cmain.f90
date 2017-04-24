@@ -89,6 +89,10 @@ integer :: provided   ! holds provided level of thread support
 integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
 ! variables to implement CSR matrix storage
+integer                              :: totalnonzero ! total nonzero elements in kglob
+real(8), dimension(:), allocatable   :: Kvalues   ! array of values in kglob
+integer, dimension(:), allocatable   :: Kcolumns  ! array of columns in kglob
+
 type row
   real(8), allocatable, dimension(:) :: values    ! values in each row
   integer, allocatable, dimension(:) :: columns   ! nonzero column numbers in each row
@@ -220,20 +224,28 @@ end do
 ! add one to every component beacuse LMcount = 1 means that row has 
 ! LMcount + 1 entries (actually (LMcount - 1) + n_en)
 LMcount = LMcount + 1
-if (rank == 0) print *, 'LMcount: ', LMcount
 
-LMcountmax = maxval(LMcount)
+! sum over all entries to determine the total number of nonzero entries
+totalnonzero = 0
+do i = 1, n_nodes
+  totalnonzero = totalnonzero + LMcount(i)
+end do
 
-! allocate space for the rows data structure
+LMcountmax = maxval(LMcount) ! maximum number of entries in one row
+
+! allocate space for the data structures
 allocate(rows(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
+allocate(Kvalues(totalnonzero), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of Kvalues array failed."
+allocate(Kcolumns(totalnonzero), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of Kcolumns array failed."
 
 ! allocate space for the elements of the rows data structure
 ! a maximum of LMcountmax is allocated for each, though not all will be used. 
 do i = 1, n_nodes
   allocate(rows(i)%values(LMcountmax))
   allocate(rows(i)%columns(LMcountmax))
-!  rows(i)%entri = 1
 end do
 
 ! populate vectors of values and the columns they belong in
@@ -330,6 +342,7 @@ end if
 ! deallocate memory -------------------------------------------------------------
 deallocate(xel, LM, rglob, a, z, res)
 deallocate(numnodes, elems, edges, recv_displs, BCcoarse, LMcount)
+deallocate(rows, Kvalues, Kcolumns)
 
 if (rank == 0) deallocate(soln)
 
