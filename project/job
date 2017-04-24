@@ -1,0 +1,23 @@
+#!/bin/bash -l
+#SBATCH -p debug 		# change this option for non-debug runs
+#SBATCH -t 00:1:00		# adjust the amount of time as necessary
+#SBATCH -N 1    		# adjust the number of nodes per test (e.g. start with 1, 2, ...)
+#SBATCH -A mp309
+#SBATCH -o mpi.%j.stdout
+#SBATCH -e mpi.%j.error
+
+#for i in $(seq 2 2 16)
+#do
+#    srun -n $i -N 1 ./a.out 1 10000 2 3
+#done
+
+export OMP_NUM_THREADS=6
+#srun -n 1 -c 24 ./openmp -n 500 -o openmp.txt
+
+srun -n 5 -N 1 -c 6 ./a.out 1 5000 2 3
+
+
+
+# -n : number of MPI processes
+# -c : number of OpenMP threads
+# -N : number of nodes

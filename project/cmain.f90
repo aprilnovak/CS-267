@@ -80,6 +80,23 @@ real(8), dimension(:),    allocatable :: acoarse     ! coarse-mesh solution
 real(8), dimension(:, :), allocatable :: BCcoarse    ! coarse solution BCs
 integer, dimension(:, :), allocatable :: LMcoarse    ! location matrix of coarse problem
 
+! variables to define OpenMP thread parallelism
+integer :: numthreads ! number of OpenMP threads
+integer :: mythread   ! current thread number
+integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
+
+!$omp parallel default(private) private(mythread) shared(numthreads)
+  mythread = omp_get_thread_num()
+  if (mythread == 0) numthreads = omp_get_num_threads()
+   
+  ! writing to standard output is not thread-safe: this must be done only one
+  ! thread at a time
+  !!$omp critical
+  !print *, 'hello from thread: ', mythread, 'of total number ', numthreads
+  !!$omp end critical
+
+!$omp end parallel
+
 k = 1.0        ! thermal conductivity
 source = 10.0  ! heat source
 tol = 0.0001   ! CG convergence tolerance
@@ -591,9 +608,11 @@ subroutine initialize(h, x, n_el, n_nodes)
   allocate(x(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
 
+  !$pragma omp parallel do default(private) shared(x, h) private(i)
   do i = 1, size(x)
     x(i) = real(i - 1) * h
   end do
+  !$pragma omp end parallel
 end subroutine initialize
 
 
