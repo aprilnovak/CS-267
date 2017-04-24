@@ -80,7 +80,7 @@ k = 1.0        ! thermal conductivity
 source = 10.0  ! heat source
 tol = 0.0001   ! CG convergence tolerance
 ddtol = 0.0005 ! domain decomposition loop tolerance
-sidenum = 1    ! elements on each side of the layers
+sidenum = 5    ! elements on each side of the layers
 
 call cpu_time(start)
 order = 1 ! only works for linear elements
@@ -192,14 +192,13 @@ do while (itererror > ddtol)
   end if
 
   write(1, *) soln(:)
- 
-  open(2, file='timing.txt', status='old', action='write', &
-    form='formatted', position='append')
-  write(2, *), n_el, finish - start, endCG - startCG, cnt
 
 ddcnt = ddcnt + 1
 end do ! ends outermost domain decomposition loop
 
+open(2, file='timing.txt', status='old', action='write', &
+  form='formatted', position='append')
+write(2, *), n_el, finish - start, endCG - startCG, cnt
 
 
 call cpu_time(finish)

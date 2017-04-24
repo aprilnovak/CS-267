@@ -33,8 +33,8 @@ integer, dimension(2)                 :: BCs            ! boundary condition nod
 real(8), dimension(2, 2)              :: kel            ! elemental stiffness matrix
 real(8), dimension(2)                 :: rel            ! elemental load vector
 real(8), dimension(:),    allocatable :: soln           ! global solution vector
-real(8), dimension(:),    allocatable :: qp             ! quadrature points
-real(8), dimension(:),    allocatable :: wt             ! quadrature weights
+real(8), dimension(2)                 :: qp             ! quadrature points
+real(8), dimension(2)                 :: wt             ! quadrature weights
 real(8), dimension(:),    allocatable :: x              ! coordinates of the nodes
 real(8), dimension(:, :), allocatable :: phi            ! shape functions
 real(8), dimension(:, :), allocatable :: dphi           ! shape function derivatives
@@ -83,19 +83,13 @@ integer, dimension(:, :), allocatable :: LMcoarse    ! location matrix of coarse
 ! variables to define OpenMP thread parallelism
 integer :: numthreads ! number of OpenMP threads
 integer :: mythread   ! current thread number
+integer :: provided   ! holds provided level of thread support
 integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
-!$omp parallel default(private) private(mythread) shared(numthreads)
-  mythread = omp_get_thread_num()
-  if (mythread == 0) numthreads = omp_get_num_threads()
-   
-  ! writing to standard output is not thread-safe: this must be done only one
-  ! thread at a time
-  !!$omp critical
-  !print *, 'hello from thread: ', mythread, 'of total number ', numthreads
-  !!$omp end critical
-
-!$omp end parallel
+! test if OMP_NUM_THREADS environment variable is set
+!character(len=100) :: stringthreads
+!call get_environment_variable("OMP_NUM_THREADS", stringthreads)
+!print *, 'number of threads: ', stringthreads
 
 k = 1.0        ! thermal conductivity
 source = 10.0  ! heat source
@@ -107,7 +101,7 @@ call cpu_time(start)
 ! initialize variables that are known to all MPI processes
 call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
 call initialize(h, x, n_el, n_nodes)              ! initialize problem vars
-call quadrature(n_qp)                             ! initialize quadrature
+call quadrature(qp, wt, n_qp)                     ! initialize quadrature
 call phi_val(qp)                                  ! initialize shape functions
 call elementalmatrices()                          ! form elemental matrices and vectors
 
@@ -115,7 +109,10 @@ n_nodes_global = n_nodes
 n_el_global = n_el
 
 ! initialize the parallel MPI environment
-call mpi_init(ierr)
+print *, 'before'
+! initialize with mpi_thread_single level of thread support
+call mpi_init_thread(0, provided, ierr)
+print *, 'after'
 call mpi_comm_size(mpi_comm_world, numprocs, ierr)
 call mpi_comm_rank(mpi_comm_world, rank, ierr)
 
@@ -287,7 +284,7 @@ if (rank == 0) deallocate(soln)
 
 call mpi_finalize(ierr)
 
-deallocate(x, qp, wt, phi, dphi)
+deallocate(x, phi, dphi)
 
 ! ------------------------------------------------------------------------------
 
@@ -333,20 +330,20 @@ subroutine initializedecomp()
   ! distribute the elements among the processors 
   maxperproc = (n_el + numprocs - 1) / numprocs
   elems = maxperproc
-  j = maxperproc * numprocs - n_el
  
   i = 1
-  do while (j > 0)
+  do j = maxperproc * numprocs - n_el, 1, -1
     elems(i) = elems(i) - 1
     i = i + 1
-    j = j - 1
     if (i == numprocs + 1) i = 1
   end do
  
   ! assign the numbers of nodes in each domain 
+  !!$omp parallel do default(private) shared(numprocs, elems, numnodes) private(j)
   do j = 1, numprocs
     numnodes(j) = elems(j) * 2 - (elems(j) - 1)
   end do
+  !!$omp end parallel do
   
   ! assign the global node numbers that correspond to the edges of each domain
   edges(:, 1) = (/1, elems(1) * 2 - (elems(1) - 1)/)
@@ -462,10 +459,8 @@ function sparse_mult_dot(matrix, LM, vector, vecdot, BCs)
   integer :: LM(:, :)     ! location matrix
   integer :: BCs(:)       ! list of BC nodes
  
-  ! return value of function
-  real(8) :: sparse_mult_dot
-
-  integer  :: i, j, q ! looping variables
+  real(8)  :: sparse_mult_dot
+  integer  :: i, j, q 
  
   sparse_mult_dot = 0.0
   do q = 1, n_el ! loop over the elements
@@ -520,19 +515,20 @@ subroutine locationmatrix(LM, n_el)
   integer, intent(in)    :: n_el
   integer                :: j
   
+  !!$omp parallel do default(private) shared(n_el, LM) private(j)
   do j = 1, n_el
     LM(:, j) = (/ j, j + 1 /)
   end do
+  !!$omp end parallel do
 end subroutine locationmatrix
 
 subroutine phi_val(qp)
-! populate phi and dphi, which are global to the calling program
   implicit none
   real(8), intent(in)  :: qp(:)
 
-  allocate(phi(2, n_qp), stat = AllocateStatus)
+  allocate(phi(2, size(qp)), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
-  allocate(dphi(2, n_qp), stat = AllocateStatus)
+  allocate(dphi(2, size(qp)), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of dphi array failed."
 
   phi(1, :)  = (1.0 - qp(:)) / 2.0
@@ -542,19 +538,14 @@ subroutine phi_val(qp)
 end subroutine phi_val
 
 
-subroutine quadrature(n_qp)
+subroutine quadrature(qp, wt, n_qp)
   implicit none
-  integer, intent(out) :: n_qp
+  real(8), intent(inout) :: qp(:), wt(:)
+  integer, intent(out)   :: n_qp
   
-  n_qp = 2
-
-  allocate(qp(n_qp), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of qp array failed."
-  allocate(wt(n_qp), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of wt array failed."
-  
-  qp = (/ -1.0/sqrt(3.0), 1.0/sqrt(3.0) /)
-  wt = (/ 1.0, 1.0 /)
+  qp   = (/ -1.0/sqrt(3.0), 1.0/sqrt(3.0) /)
+  wt   = (/ 1.0, 1.0 /)
+  n_qp = size(qp)
 end subroutine quadrature
 
 
@@ -573,9 +564,6 @@ subroutine commandline(n_el, length, leftBC, rightBC)
 
   do i = 1, nargs
     call get_command_argument(i, args)
-  
-    ! use internal reads to convert from character to numeric types
-    ! (read from the character buffer into the numeric variable)
     select case (i)
       case(1)
         read(args, *), length
@@ -608,11 +596,11 @@ subroutine initialize(h, x, n_el, n_nodes)
   allocate(x(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
 
-  !$pragma omp parallel do default(private) shared(x, h) private(i)
+  !!$omp parallel do default(private) shared(x, h) private(i)
   do i = 1, size(x)
     x(i) = real(i - 1) * h
   end do
-  !$pragma omp end parallel
+  !!$omp end parallel do
 end subroutine initialize
 
 

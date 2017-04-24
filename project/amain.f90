@@ -49,6 +49,7 @@ real(8) :: itererror           ! whole-loop iteration error
 real(8) :: ddtol               ! domain decomposition loop tolerance
 integer :: ierr                ! holds error state for MPI calls
 integer :: overlap             ! number of elements to overlap each domain
+integer :: sendlength          ! rank's length of solution to plot
 
 integer, dimension(mpi_status_size) :: stat ! MPI send/receive status
 
@@ -57,6 +58,7 @@ real(8), dimension(:), allocatable :: prev        ! previous interface values
 real(8), dimension(:), allocatable :: soln        ! global solution vector
 real(8), dimension(:), allocatable :: xel         ! coordinates in each domain
 integer, dimension(:), allocatable :: numnodes    ! number of nodes in each domain
+integer, dimension(:), allocatable :: elemspre    ! n_el in each domain before overlap
 integer, dimension(:), allocatable :: elems       ! n_el in each domain
 integer, dimension(2)              :: BCs         ! boundary condition nodes
 real(8), dimension(:), allocatable :: qp          ! quadrature points
@@ -67,6 +69,7 @@ real(8), dimension(:), allocatable :: rglob       ! global load vector
 real(8), dimension(:), allocatable :: a           ! CG solution iterates
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
+real(8), dimension(:), allocatable :: send        ! final solution values to send
 
 real(8), dimension(2)                 :: BCvals   ! values of BCs for each domain
 real(8), dimension(:, :), allocatable :: kel      ! elemental stiffness matrix
@@ -110,6 +113,8 @@ allocate(numnodes(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
 allocate(elems(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
+allocate(elemspre(numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of elemspre array failed."
 allocate(edges(2, numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
 allocate(recv_displs(numprocs), stat = AllocateStatus)
@@ -117,9 +122,17 @@ if (AllocateStatus /= 0) STOP "Allocation of recv_displs array failed."
 allocate(prev(numprocs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of prev array failed."
   
-overlap = 3 ! number of elements to overlap each domain with the next (half-overlap)
+overlap = 1 ! number of elements to overlap each domain with the next (half-overlap)
 
 call initializedecomp()                   ! initialize domain decomposition
+
+if (rank == 0) then
+  print *, 'numnodes: ', numnodes
+  print *, 'elems: ', elems
+  print *, 'elemspre: ', elemspre
+  print *, 'edges: ', edges
+  print *, 'recv_displs: ', recv_displs
+end if
 
 allocate(xel(numnodes(rank + 1)), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
@@ -137,13 +150,19 @@ if (AllocateStatus /= 0) STOP "Allocation of res array failed."
 n_el    = elems(rank + 1)
 n_nodes = numnodes(rank + 1)
 
+! determine the length of my solution that is saved for plotting
+allocate(send(sendlength), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of send array failed."
+
 ! assign the initial boundary conditions given the rank of the calling process
 ! only the left processors do anything the first iteration
-if (mod(rank + 1, 2) /= 0) then ! odd processes
+!if (mod(rank + 1, 2) /= 0) then ! odd processes
   m = (rightBC - leftBC) / length
   BCvals(1) = m * x(edges(1, rank + 1)) + leftBC
   BCvals(2) = m * x(edges(2, rank + 1)) + leftBC
-end if
+!end if
+
+print *, 'rank: ', rank, 'initial BCs: ', BCvals
 
 ! each processor prepares its solution needs  
 xel = x(edges(1, rank + 1):edges(2, rank + 1)) ! domain sizes don't change
@@ -164,6 +183,7 @@ do while (itererror > ddtol)
     rglob(BCs(2)) = BCvals(2)   
   
     call conjugategradient(BCvals(2), BCvals(1))
+    print *, 'rank: ', rank, 'odd solution: ', a
 
     ! each odd processor sends a value to the processor to the right ------------------
 
@@ -174,7 +194,7 @@ do while (itererror > ddtol)
  
     ! each odd processor sends a value to the processor to the left -------------------
 
-    if (rank /= 0) then
+    if (rank + 1 /= 1) then
       ! tag of the message is _rank_ + 1000
       call mpi_send(a(2 * overlap), 1, mpi_real8, rank - 1, rank + 1000, mpi_comm_world, ierr)
     end if
@@ -187,6 +207,9 @@ do while (itererror > ddtol)
     if (rank + 1 /= numprocs) then
       call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1 + 1000, mpi_comm_world, stat, ierr)
     end if
+    
+   print *, 'rank: ', rank, 'I just received: ', BCvals
+
   end if
 
   call mpi_barrier(mpi_comm_world, ierr)
@@ -197,7 +220,9 @@ do while (itererror > ddtol)
     rglob(BCs(2)) = BCvals(2)   
   
     call conjugategradient(BCvals(2), BCvals(1))
-   
+  
+    print *, 'rank: ', rank, 'first even solution: ', a
+
     ! each even processor sends a value to the right -----------------------------------
     if (rank + 1 /= numprocs) then
       ! tag is _rank_
@@ -229,25 +254,35 @@ do while (itererror > ddtol)
   ddcnt = ddcnt + 1
 end do ! ends outermost domain decomposition loop
 
+call mpi_barrier(mpi_comm_world, ierr)
+
+if (rank == 0) then
+  send = a(1:(n_nodes - overlap - 1))
+else if (rank == numprocs - 1) then
+  send = a((overlap + 1):(n_nodes - 1))
+else
+  send = a((overlap + 1):(n_nodes - overlap - 1))
+end if
+
+
 if (rank == 0) print *, 'count: ', ddcnt
 
 ! each processor broadcasts its final solution to the rank 0 process --------------
-!print *, 'rank: ', rank 
-!call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
-!                    soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, &
-!                    0, mpi_comm_world, ierr)
+call mpi_gatherv(send, sendlength, mpi_real8, &
+                    soln(1:(n_nodes_global - 1)), elemspre, recv_displs, mpi_real8, &
+                    0, mpi_comm_world, ierr)
 
 ! write results to output file ----------------------------------------------------
 
-!if (rank == 0) then
-!  soln(n_nodes_global) = rightBC 
+if (rank == 0) then
+  soln(n_nodes_global) = rightBC 
   ! write to an output file. If this file exists, it will be re-written.
-!  open(1, file='output.txt', iostat=AllocateStatus, status="replace")
-!  if (AllocateStatus /= 0) STOP "output.txt file opening failed."
+  open(1, file='output.txt', iostat=AllocateStatus, status="replace")
+  if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 
-!  write(1, *) numprocs, n_el_global, ddcnt, soln
-  !write(1, *) soln(:)
-!end if
+  write(1, *) numprocs, n_el_global, ddcnt, soln
+  write(1, *) soln(:)
+end if
 
 ! final timing results ----------------------------------------------------------
 if (rank == 0) then
@@ -284,9 +319,19 @@ subroutine initializedecomp()
     j = j - 1
     if (i == numprocs + 1) i = 1
   end do
-  if (rank == 0) print *, 'elems before extension: ', elems
+
+  if (rank == 0) print *, 'elems: ', elems
+  elemspre = elems
+
+  ! number of pieces to send (last entry will need to be manually input as rightBC)
+  sendlength = elems(rank + 1)
   
-  
+  ! set the displacements according to non-overlapping domains
+  recv_displs = 0
+  do i = 2, numprocs
+    recv_displs(i) = recv_displs(i - 1) + elems(i - 1)
+  end do
+   
   ! assign the global node numbers that correspond to the edges of each domain
   ! this must take into account that the domains overlap, so this uses the 
   ! element counts before manually adding in the overlap
@@ -320,10 +365,6 @@ subroutine initializedecomp()
   ! assign an initial itererror (dummy value to enter the loop)
   itererror = 1
 
-  !recv_displs = 0
-  !do i = 2, numprocs
-  !  recv_displs(i) = recv_displs(i - 1) + elems(i - 1)
-  !end do
 end subroutine initializedecomp
 
 
@@ -392,6 +433,8 @@ subroutine conjugategradient(rightBC, leftBC)
       convergence = convergence + abs(res(i))
     end do
     
+    if (rank == 0) print *, convergence
+ 
   cnt = cnt + 1
   end do
 end subroutine conjugategradient

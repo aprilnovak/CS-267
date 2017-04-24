@@ -183,18 +183,19 @@ do while (itererror > ddtol)
    
   call mpi_barrier(mpi_comm_world, ierr)
   ddcnt = ddcnt + 1
+
+  ! write results to output file --------------------------------------------------
+  ! move this outside the DD loop to NOT plot for each iteration
+  if (rank == 0) then
+    if (ddcnt == 0) then
+      ! write to an output file. If this file exists, it will be re-written.
+      open(1, file='output.txt', iostat=AllocateStatus, status="replace")
+      if (AllocateStatus /= 0) STOP "output.txt file opening failed."
+    end if
+    write(1, *) soln(:)
+  end if
 end do ! ends outermost domain decomposition loop
 
-! write results to output file --------------------------------------------------
-! move this inside the DD loop to plot for each iteration
-if (rank == 0) then
-  !if (ddcnt == 0) then
-    ! write to an output file. If this file exists, it will be re-written.
-    open(1, file='output.txt', iostat=AllocateStatus, status="replace")
-    if (AllocateStatus /= 0) STOP "output.txt file opening failed."
-  !end if
-  write(1, *) soln(:)
-end if
 
 !if (rank == 0) then
 !  if (ddcnt == 0) then

@@ -1,3 +1,6 @@
+! non-overlapping interface
+! each processor computes one interface problem
+
 ! program to solve the heat equation (Dirichlet boundary conditions only)
 ! using domain decomposition. This version has the domain to the left of
 ! each interface send a single interface value to the processor to the
