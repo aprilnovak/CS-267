@@ -436,11 +436,14 @@ real function dotprod(vec1, vec2)
   implicit none
   real(8)  :: vec1(:), vec2(:)
   integer  :: i
-
+  
   dotprod = 0.0  
+
+  !$omp parallel do default(shared) private(i) reduction(+:dotprod)
   do i = 1, size(vec1)
     dotprod = dotprod + vec1(i) * vec2(i)
   end do
+  !$omp end parallel do
 end function dotprod
 
 
@@ -582,13 +585,11 @@ subroutine initialize(h, x, n_el, n_nodes)
   integer, intent(in)  :: n_el    
   integer, intent(out) :: n_nodes 
   real(8), dimension(:), allocatable, intent(out) :: x 
-
-  integer :: i ! looping variable
+  integer              :: i
 
   h = length / real(n_el)
   n_nodes = n_el + 1 
 
-  ! allocate memory for the vector of node coordinates
   allocate(x(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
 
