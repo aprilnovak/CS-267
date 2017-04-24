@@ -88,10 +88,7 @@ integer :: provided   ! holds provided level of thread support
 integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
 ! variables to implement CSR matrix storage
-integer                              :: totalnonzero ! total nonzero elements in kglob
 real(8)                              :: accum     ! holds accumulated value
-real(8), dimension(:), allocatable   :: Kvalues   ! array of values in kglob
-integer, dimension(:), allocatable   :: Kcolumns  ! array of columns in kglob
 real(8), dimension(:), allocatable   :: resultant ! product of matrix-vector multiplication
 
 type row
@@ -214,33 +211,23 @@ BCvals(2) = BCcoarse(2, rank + 1)
 call locationmatrix(LM, n_el)            ! form the location matrix
 call globalload()                        ! form the global load vector
 
-! implement CSR storage of each domain's global matrix
+! Determine the number of elements that contain each node (given as a 
+! vector of length n_nodes). Then, the formula to obtain the number of 
+! nonzero entries per row is (LMcount - 1 + n_en), so compute the number
+! of nonzero entries per row in the global stiffness matrix.
 LMcount = 0
 do j = 1, n_el
   do i = 1, 2
     LMcount(LM(i, j)) = LMcount(LM(i, j)) + 1
   end do
 end do
-
-! add one to every component beacuse LMcount = 1 means that row has 
-! LMcount + 1 entries (actually (LMcount - 1) + n_en)
 LMcount = LMcount + 1
-
-! sum over all entries to determine the total number of nonzero entries
-totalnonzero = 0
-do i = 1, n_nodes
-  totalnonzero = totalnonzero + LMcount(i)
-end do
 
 ! allocate space for the data structures
 allocate(rows(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 allocate(resultant(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of resultant array failed."
-allocate(Kvalues(totalnonzero), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of Kvalues array failed."
-allocate(Kcolumns(totalnonzero), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of Kcolumns array failed."
 
 ! allocate space for the elements of the rows data structure
 ! The formula used to determine how many contributions are made in a row
@@ -261,13 +248,6 @@ do q = 1, n_el
   end do
 end do
 
-if (rank == 0) then
-do i = 1, n_nodes
-  print *, 'values for row ', i, ': ', rows(i)%values(:)
-  print *, 'columns for row ', i, ': ', rows(i)%columns(:)
-  print *, 'a for row ', i, ': ', a(rows(i)%columns(:))
-end do
-end if
 
 
 
@@ -280,27 +260,23 @@ a = m * (xel - xel(1)) + BCvals(1)
 
 
 if (rank == 0) then
-  ! loop over the rows to perform multiplication
+  ! perform multiplication one row at a time
   do i = 1, n_nodes
-      accum = 0.0
-      do j = 1, size(rows(i)%columns(:))
-        accum = accum + rows(i)%values(j) * a(rows(i)%columns(j))
-      end do  
-        resultant(i) = accum
+    accum = 0.0
+    do j = 1, size(rows(i)%columns(:))
+      accum = accum + rows(i)%values(j) * a(rows(i)%columns(j))
+    end do  
+    resultant(i) = accum
   end do
  
   ! add boundary conditions after-the-fact
   resultant(BCs(1)) = a(BCs(1))
   resultant(BCs(2)) = a(BCs(2))
- 
-  print *, 'original method: ', sparse_mult(kel, LM, a)
-  print *, 'new method: ', resultant
 end if
 
 
 ddcnt = 0
-do while (.false.)
-!do while (itererror > ddtol)
+do while (itererror > ddtol)
   ! save the previous values of the interface BCs
   prev = BCvals
 
@@ -369,7 +345,7 @@ end if
 ! deallocate memory -------------------------------------------------------------
 deallocate(xel, LM, rglob, a, z, res)
 deallocate(numnodes, elems, edges, recv_displs, BCcoarse, LMcount)
-deallocate(rows, Kvalues, Kcolumns, resultant)
+deallocate(rows, resultant)
 
 if (rank == 0) deallocate(soln)
 
