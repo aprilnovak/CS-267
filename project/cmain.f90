@@ -90,9 +90,9 @@ integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
 ! variables to implement CSR matrix storage
 type row
-  real(8), allocatable, dimension(:) :: values  ! values in each row
-  integer, allocatable, dimension(:) :: columns ! nonzero column numbers in each row
-  integer                            :: entri   ! entry that is next to be filled    
+  real(8), allocatable, dimension(:) :: values    ! values in each row
+  integer, allocatable, dimension(:) :: columns   ! nonzero column numbers in each row
+  integer                            :: entri = 1 ! entry that is next to be filled    
 end type row
 
 type(row), allocatable, dimension(:) :: rows    ! row-type rows in global K matrix
@@ -229,12 +229,23 @@ allocate(rows(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 
 ! allocate space for the elements of the rows data structure
+! a maximum of LMcountmax is allocated for each, though not all will be used. 
 do i = 1, n_nodes
   allocate(rows(i)%values(LMcountmax))
   allocate(rows(i)%columns(LMcountmax))
+!  rows(i)%entri = 1
 end do
 
-
+! populate vectors of values and the columns they belong in
+do q = 1, n_el
+  do i = 1, 2
+    do j = 1, 2
+      rows(LM(i, q))%columns(rows(LM(i, q))%entri) = LM(j, q)
+      rows(LM(i, q))%values(rows(LM(i, q))%entri)  = kel(i, j)
+      rows(LM(i, q))%entri = rows(LM(i, q))%entri + 1
+    end do
+  end do
+end do
 
 
 
