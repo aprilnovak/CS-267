@@ -1,6 +1,6 @@
 ! non-overlapping interface
 ! each processor computes one interface problem
-! this version removes unecessary complexity 
+! builds from bmain by adding openMP parallelism
 
 ! program to solve the heat equation (Dirichlet boundary conditions only)
 ! using domain decomposition. This version has the domain to the left of
@@ -20,60 +20,55 @@ real(8)  :: start              ! holds start run time
 real(8)  :: finish             ! holds end run time
 
 ! variables to define the global problem
-integer  :: n_el_global        ! number of (global) elements
-integer  :: n_nodes_global     ! number of (global) nodes
-integer  :: n_qp               ! number of quadrature points
-real(8)  :: length             ! length of the domain (1-D)
-real(8)  :: h                  ! length of one element
-real(8)  :: k                  ! thermal conductivity
-real(8)  :: source             ! uniform heat source
-real(8)  :: leftBC             ! left Dirichlet boundary condition value
-real(8)  :: rightBC            ! right Dirichlet boundary condition value
-
-! variables to define the local problem
-integer  :: n_el               ! number of (local) elements
-integer  :: n_nodes            ! number of (local) nodes
+integer                               :: n_el_global    ! global elements
+integer                               :: n_nodes_global ! global nodes
+integer                               :: n_qp           ! number of quadrature points
+real(8)                               :: length         ! length of the domain (1-D)
+real(8)                               :: h              ! length of one element
+real(8)                               :: k              ! thermal conductivity
+real(8)                               :: source         ! uniform heat source
+real(8)                               :: leftBC         ! left Dirichlet BC value
+real(8)                               :: rightBC        ! right Dirichlet BC value
+integer, dimension(2)                 :: BCs            ! boundary condition nodes
+real(8), dimension(2, 2)              :: kel            ! elemental stiffness matrix
+real(8), dimension(2)                 :: rel            ! elemental load vector
+real(8), dimension(:),    allocatable :: soln           ! global solution vector
+real(8), dimension(:),    allocatable :: qp             ! quadrature points
+real(8), dimension(:),    allocatable :: wt             ! quadrature weights
+real(8), dimension(:),    allocatable :: x              ! coordinates of the nodes
+real(8), dimension(:, :), allocatable :: phi            ! shape functions
+real(8), dimension(:, :), allocatable :: dphi           ! shape function derivatives
+integer, dimension(:, :), allocatable :: LM             ! location matrix
 
 ! variables to define the CG solver
-integer :: cnt                 ! number of CG iterations
-real(8) :: convergence         ! difference between CG iterations
-real(8) :: tol                 ! CG convergence tolerance
-real(8) :: m                   ! slope of line
-
-! parallel variables
-integer  :: numprocs           ! number of processors
-integer  :: maxperproc         ! maximum number of elements per processor
-integer  :: rank               ! processor rank
-integer  :: ddcnt              ! domain decomposition counter
-real(8)  :: itererror          ! whole-loop iteration error
-real(8)  :: ddtol              ! domain decomposition loop tolerance
-integer  :: ierr               ! holds error state for MPI calls
-
-integer, dimension(mpi_status_size) :: stat ! MPI send/receive status
-
-integer, dimension(:), allocatable :: recv_displs ! displacement of each domain
-real(8), dimension(:), allocatable :: prev        ! previous interface values
-real(8), dimension(:), allocatable :: soln        ! global solution vector
-real(8), dimension(:), allocatable :: xel         ! coordinates in each domain
-integer, dimension(:), allocatable :: numnodes    ! number of nodes in each domain
-integer, dimension(:), allocatable :: elems       ! n_el in each domain
-integer, dimension(2)              :: BCs         ! boundary condition nodes
-real(8), dimension(:), allocatable :: qp          ! quadrature points
-real(8), dimension(:), allocatable :: wt          ! quadrature weights
-real(8), dimension(:), allocatable :: x           ! coordinates of the nodes
-real(8), dimension(2)              :: rel         ! elemental load vector
-real(8), dimension(:), allocatable :: rglob       ! global load vector
-real(8), dimension(:), allocatable :: a           ! CG solution iterates
+integer                            :: cnt         ! number of CG iterations
+real(8)                            :: convergence ! difference between CG iterations
+real(8)                            :: tol         ! CG convergence tolerance
+real(8)                            :: m           ! slope of line
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
 
-real(8), dimension(2)                 :: BClocals ! values of BCs for each interface
-real(8), dimension(2)                 :: BCvals   ! values of BCs for each domain
-real(8), dimension(2, 2)              :: kel      ! elemental stiffness matrix
-real(8), dimension(:, :), allocatable :: phi      ! shape functions
-real(8), dimension(:, :), allocatable :: dphi     ! shape function derivatives
-integer, dimension(:, :), allocatable :: edges    ! nodes on edge of each domain
-integer, dimension(:, :), allocatable :: LM       ! location matrix
+! variables to define the local problem
+integer                               :: n_el        ! number of (local) elements
+integer                               :: n_nodes     ! number of (local) nodes
+integer                               :: numprocs    ! number of processors
+integer                               :: maxperproc  ! maximum number of elements per processor
+integer                               :: rank        ! processor rank
+integer                               :: ddcnt       ! domain decomposition counter
+real(8)                               :: itererror   ! whole-loop iteration error
+real(8)                               :: ddtol       ! domain decomposition loop tolerance
+integer                               :: ierr        ! holds error state for MPI calls
+integer, dimension(:, :), allocatable :: edges       ! nodes on edge of each domain
+integer, dimension(:),    allocatable :: recv_displs ! displacement of each domain
+real(8), dimension(:),    allocatable :: xel         ! coordinates in each domain
+integer, dimension(:),    allocatable :: numnodes    ! number of nodes in each domain
+integer, dimension(:),    allocatable :: elems       ! n_el in each domain
+real(8), dimension(:),    allocatable :: rglob       ! global load vector
+real(8), dimension(:),    allocatable :: a           ! CG solution iterates
+integer, dimension(mpi_status_size)   :: stat        ! MPI send/receive status
+real(8), dimension(2)                 :: prev        ! previous interface values
+real(8), dimension(2)                 :: BClocals    ! values of BCs for each interface
+real(8), dimension(2)                 :: BCvals      ! values of BCs for each domain
 
 ! variables to define the coarse-mesh solution
 real(8), dimension(:),    allocatable :: hlocal      ! coarse element lengths
@@ -269,7 +264,7 @@ end if
 
 ! deallocate memory -------------------------------------------------------------
 deallocate(xel, LM, rglob, a, z, res)
-deallocate(numnodes, elems, edges, recv_displs, prev, BCcoarse)
+deallocate(numnodes, elems, edges, recv_displs, BCcoarse)
 
 if (rank == 0) deallocate(soln)
 
@@ -310,8 +305,6 @@ subroutine allocatedecomp()
   if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
   allocate(recv_displs(numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of recv_displs array failed."
-  allocate(prev(numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of prev array failed."
   allocate(BCcoarse(2, numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of BCcoarse array failed."
 end subroutine allocatedecomp
