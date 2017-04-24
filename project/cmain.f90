@@ -89,6 +89,7 @@ integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
 ! variables to implement CSR matrix storage
 integer                              :: totalnonzero ! total nonzero elements in kglob
+real(8)                              :: accum     ! holds accumulated value
 real(8), dimension(:), allocatable   :: Kvalues   ! array of values in kglob
 integer, dimension(:), allocatable   :: Kcolumns  ! array of columns in kglob
 real(8), dimension(:), allocatable   :: resultant ! product of matrix-vector multiplication
@@ -215,8 +216,8 @@ call globalload()                        ! form the global load vector
 
 ! implement CSR storage of each domain's global matrix
 LMcount = 0
-do i = 1, 2
-  do j = 1, n_el
+do j = 1, n_el
+  do i = 1, 2
     LMcount(LM(i, j)) = LMcount(LM(i, j)) + 1
   end do
 end do
@@ -242,10 +243,11 @@ allocate(Kcolumns(totalnonzero), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of Kcolumns array failed."
 
 ! allocate space for the elements of the rows data structure
-! a maximum of LMcountmax is allocated for each, though not all will be used. 
+! The formula used to determine how many contributions are made in a row
+! would need to be redetermined for higher-dimensional meshes. 
 do i = 1, n_nodes
-  allocate(rows(i)%values(LMcount(i)))
-  allocate(rows(i)%columns(LMcount(i)))
+  allocate(rows(i)%values(2 * LMcount(i) - 2))
+  allocate(rows(i)%columns(2 * LMcount(i) - 2))
 end do
 
 ! populate vectors of values and the columns they belong in
@@ -259,8 +261,13 @@ do q = 1, n_el
   end do
 end do
 
-
-
+if (rank == 0) then
+do i = 1, n_nodes
+  print *, 'values for row ', i, ': ', rows(i)%values(:)
+  print *, 'columns for row ', i, ': ', rows(i)%columns(:)
+  print *, 'a for row ', i, ': ', a(rows(i)%columns(:))
+end do
+end if
 
 
 
@@ -272,13 +279,23 @@ a = m * (xel - xel(1)) + BCvals(1)
 
 
 
-
-! loop over the rows to perform multiplication
-resultant = 2.0
-do i = 1, n_nodes
-  resultant(i) = dot_product(rows(i)%values(:), a(rows(i)%columns(:)))
-end do
-
+if (rank == 0) then
+  ! loop over the rows to perform multiplication
+  do i = 1, n_nodes
+      accum = 0.0
+      do j = 1, size(rows(i)%columns(:))
+        accum = accum + rows(i)%values(j) * a(rows(i)%columns(j))
+      end do  
+        resultant(i) = accum
+  end do
+ 
+  ! add boundary conditions after-the-fact
+  resultant(BCs(1)) = a(BCs(1))
+  resultant(BCs(2)) = a(BCs(2))
+ 
+  print *, 'original method: ', sparse_mult(kel, LM, a)
+  print *, 'new method: ', resultant
+end if
 
 
 ddcnt = 0
