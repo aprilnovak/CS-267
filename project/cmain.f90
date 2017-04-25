@@ -79,6 +79,7 @@ real(8), dimension(:),    allocatable :: rglobcoarse ! global load vector, coars
 real(8), dimension(:),    allocatable :: xcoarse     ! coordinates of the shared nodes
 real(8), dimension(:),    allocatable :: acoarse     ! coarse-mesh solution
 real(8), dimension(:, :), allocatable :: BCcoarse    ! coarse solution BCs
+integer, dimension(:),    allocatable :: LMcountcoarse ! number of elements in row i of Kglob
 integer, dimension(:, :), allocatable :: LMcoarse    ! location matrix of coarse problem
 
 ! variables to define OpenMP thread parallelism
@@ -88,8 +89,6 @@ integer :: provided   ! holds provided level of thread support
 integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
 ! variables to implement CSR matrix storage
-real(8), dimension(:), allocatable   :: resultant ! product of matrix-vector multiplication
-
 type row
   real(8), allocatable, dimension(:) :: values    ! values in each row
   integer, allocatable, dimension(:) :: columns   ! nonzero column numbers in each row
@@ -97,6 +96,7 @@ type row
 end type row
 
 type(row), allocatable, dimension(:) :: rows    ! row-type rows in global K matrix
+type(row), allocatable, dimension(:) :: rowscoarse    ! row-type rows in coarse global K matrix
 
 ! read in variable values for simulation from namelist
 namelist /FEM/ k, source, n_qp, tol, ddtol
@@ -153,6 +153,10 @@ if (rank == 0) then
   if (AllocateStatus /= 0) STOP "Allocation of zcoarse array failed."
   allocate(rescoarse(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rescoarse array failed."
+  allocate(LMcountcoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of LMcountcoarse array failed."
+  allocate(rowscoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rowscoarse array failed."
 
   xcoarse(1) = x(edges(1, 1))
   do i = 2, n_nodes
@@ -164,6 +168,14 @@ if (rank == 0) then
   BCvals = (/ leftBC, rightBC /)
 
   call locationmatrix(LMcoarse, n_el)      ! form the location matrix
+
+  LMcountcoarse = 0
+  do j = 1, n_el
+    do i = 1, 2
+      LMcountcoarse(LMcoarse(i, j)) = LMcountcoarse(LMcoarse(i, j)) + 1
+    end do
+  end do
+  LMcountcoarse = LMcountcoarse + 1
   
   ! form the global load vector
   rglobcoarse = 0.0
@@ -176,11 +188,30 @@ if (rank == 0) then
   rglobcoarse(BCs(1)) = BCvals(1)
   rglobcoarse(BCs(2)) = BCvals(2)   
 
+  ! allocate space for the elements of the rows data structure
+  ! The formula used to determine how many contributions are made in a row
+  ! would need to be redetermined for higher-dimensional meshes. 
+  do i = 1, n_nodes
+    allocate(rowscoarse(i)%values(2 * LMcountcoarse(i) - 2))
+    allocate(rowscoarse(i)%columns(2 * LMcountcoarse(i) - 2))
+  end do
+
+  ! populate vectors of values and the columns they belong in
+  do q = 1, n_el
+    do i = 1, 2
+      do j = 1, 2
+        rowscoarse(LMcoarse(i, q))%columns(rowscoarse(LMcoarse(i, q))%entri) = LMcoarse(j, q)
+        rowscoarse(LMcoarse(i, q))%values(rowscoarse(LMcoarse(i, q))%entri)  = kel(i, j)
+        rowscoarse(LMcoarse(i, q))%entri = rowscoarse(LMcoarse(i, q))%entri + 1
+      end do
+    end do
+  end do
+
   ! initial guess is a straight line between the two endpoints
   m = (rightBC - leftBC) / length
   acoarse = m * (xcoarse - xcoarse(1)) + BCvals(1)
 
-  !call conjugategradient(kel, acoarse, LMcoarse, rglobcoarse, zcoarse, rescoarse, BCs)
+  call conjugategradient(rowscoarse, acoarse, rglobcoarse, zcoarse, rescoarse, BCs)
   
   ! insert first-guess BCs into BCcoarse array, then broadcast to all processes
   BCcoarse(1, 1) = acoarse(1)
@@ -192,6 +223,7 @@ if (rank == 0) then
   end do
 
   deallocate(xcoarse, LMcoarse, rglobcoarse, acoarse, hlocal)  
+  deallocate(LMcountcoarse, rowscoarse)
 end if
 
 call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
@@ -225,8 +257,6 @@ LMcount = LMcount + 1
 ! allocate space for the data structures
 allocate(rows(n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
-allocate(resultant(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of resultant array failed."
 
 ! allocate space for the elements of the rows data structure
 ! The formula used to determine how many contributions are made in a row
@@ -257,13 +287,6 @@ m = (BCvals(2) - BCvals(1)) / (xel(n_nodes) - xel(1))
 a = m * (xel - xel(1)) + BCvals(1)
 
 
-
-if (rank == 0) then
-  print *, 'original: ', sparse_mult(kel, LM, a)
-  print *, 'new: ', csr_mult(rows, a, BCs)
-  print *, 'original: ', sparse_mult_dot(kel, LM, a, a, BCs)
-  print *, 'new: ', csr_mult_dot(rows, a, BCs, a)
-end if
 
 
 ddcnt = 0
@@ -336,7 +359,7 @@ end if
 ! deallocate memory -------------------------------------------------------------
 deallocate(xel, LM, rglob, a, z, res)
 deallocate(numnodes, elems, edges, recv_displs, BCcoarse, LMcount)
-deallocate(rows, resultant)
+deallocate(rows)
 
 if (rank == 0) deallocate(soln)
 
@@ -454,8 +477,6 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs)
   real(8), intent(inout) :: a(:)         ! resultant vector
   real(8), intent(inout) :: z(:), res(:) ! CG vectors
   real(8), intent(in)    :: rglob(:)     ! rhs vector
-  !real(8), intent(in)    :: kel(:, :)    ! elementary stiffness matrix
-  !integer, intent(in)    :: LM(:, :)     ! location matrix for multiplication
   integer, intent(in)    :: BCs(:)       ! BC nodes 
   type(row), intent(in)  :: rows(:)      ! kglob in CSR form
   
