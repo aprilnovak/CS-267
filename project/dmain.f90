@@ -368,21 +368,27 @@ subroutine csr(rows, kel, LM, LMcount, n_nodes, n_el)
   ! allocate space for the elements of the rows data structure
   ! The formula used to determine how many contributions are made in a row
   ! would need to be redetermined for higher-dimensional meshes. 
+  
+  !$omp  parallel do default(none) shared(n_nodes, rows, LMcount) private(i) 
+  !$omp& schedule(static)
   do i = 1, n_nodes
     allocate(rows(i)%values(2 * LMcount(i) - 2))
     allocate(rows(i)%columns(2 * LMcount(i) - 2))
   end do
+  !$omp end parallel do
   
-  ! populate vectors of values and the columns they belong in
+  !$omp  parallel do default(none) shared(n_el, rows, LM, kel) private(q, j, i)
+  !$omp& schedule(static)
   do q = 1, n_el
-    do i = 1, 2
-      do j = 1, 2
+    do j = 1, 2
+      do i = 1, 2
         rows(LM(i, q))%columns(rows(LM(i, q))%entri) = LM(j, q)
         rows(LM(i, q))%values(rows(LM(i, q))%entri)  = kel(i, j)
         rows(LM(i, q))%entri = rows(LM(i, q))%entri + 1
       end do
     end do
   end do
+  !$omp end parallel do
 end subroutine csr
 
 
@@ -456,16 +462,20 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs)
   real(8) :: lambda, theta
   integer :: cnt
 
-  res         = rglob - csr_mult(rows, a, BCs)
+  !res         = rglob - csr_mult(rows, a, BCs)
+  res         = csr_mult_sub(rows, a, BCs, rglob)
   z           = res
   lambda      = dotprod(z, res)/csr_mult_dot(rows, z, BCs, z)
   a           = a + lambda * z
-  res         = rglob - csr_mult(rows, a, BCs)
+  !res         = rglob - csr_mult(rows, a, BCs)
+  res         = csr_mult_sub(rows, a, BCs, rglob)
   convergence = 0.0
- 
+  
+  !$omp parallel do default(none) shared(res) private(i) reduction(+:convergence) 
   do i = 1, size(res)
     convergence = convergence + abs(res(i))
   end do
+  !$omp end parallel do
   
   cnt = 0
   do while (convergence > tol)
@@ -473,12 +483,15 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs)
     z           = res - theta * z
     lambda      = dotprod(z, res) / csr_mult_dot(rows, z, BCs, z)
     a           = a + lambda * z
-    res         = rglob - csr_mult(rows, a, BCs)
+    !res         = rglob - csr_mult(rows, a, BCs)
+    res         = csr_mult_sub(rows, a, BCs, res)
     convergence = 0.0
-    
+  
+    !$omp parallel do default(none) shared(res) private(i) reduction(+:convergence) 
     do i = 1, size(res)
       convergence = convergence + abs(res(i))
     end do
+    !$omp end parallel do
     
   cnt = cnt + 1
   end do
@@ -567,6 +580,38 @@ function csr_mult(rows, a, BCs)
     csr_mult(BCs(i)) = a(BCs(i))
   end do
 end function csr_mult
+
+
+function csr_mult_sub(rows, a, BCs, b)
+  implicit none
+  type(row) :: rows(:)
+  real(8)   :: a(:)
+  real(8)   :: b(:)
+  integer   :: BCs(:)
+  integer   :: n, i, j
+  real(8)   :: accum
+  
+  ! return value of function, as an automatic array
+  real(8)   :: csr_mult_sub(size(a))  
+
+  n = size(a)
+
+  !$omp parallel do default(none) shared(rows, csr_mult, n) private(i, j, accum) 
+  do i = 1, n
+    accum = 0.0
+    do j = 1, size(rows(i)%columns(:))
+      accum = accum + rows(i)%values(j) * a(rows(i)%columns(j))
+    end do  
+    csr_mult_sub(i) = b(i) - accum
+  end do
+  !$omp end parallel do 
+
+  ! apply boundary conditions
+  do i = 1, size(BCs)
+    csr_mult_sub(BCs(i)) = b(i) - a(BCs(i))
+  end do
+end function csr_mult_sub
+
 
 
 subroutine locationmatrix(LM, LMcount, n_el)
