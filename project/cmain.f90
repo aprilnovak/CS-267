@@ -1,6 +1,6 @@
 ! non-overlapping interface
 ! each processor computes one interface problem
-! builds from bmain by adding openMP parallelism
+! builds from bmain by adding openMP parallelism and CSR matrix storage
 
 ! program to solve the heat equation (Dirichlet boundary conditions only)
 ! using domain decomposition. This version has the domain to the left of
@@ -115,7 +115,7 @@ call phi_val(qp)                                  ! initialize shape functions
 call elementalmatrices()                          ! form elemental matrices and vectors
 
 n_nodes_global = n_nodes
-n_el_global = n_el
+n_el_global    = n_el
 
 ! initialize the parallel MPI environment with mpi_thread_single level of thread support
 call mpi_init_thread(0, provided, ierr)
@@ -138,25 +138,7 @@ if (rank == 0) then
   n_el    = numprocs
   n_nodes = numprocs + 1
   
-  ! allocate storage for the coarse-mesh CG solve
-  allocate(xcoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of xcoarse array failed."
-  allocate(hlocal(n_el), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of hlocal array failed."
-  allocate(LMcoarse(2, n_el), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of LMcoarse array failed."
-  allocate(rglobcoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rglobcoarse array failed."
-  allocate(acoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of acoarse array failed."
-  allocate(zcoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of zcoarse array failed."
-  allocate(rescoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rescoarse array failed."
-  allocate(LMcountcoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of LMcountcoarse array failed."
-  allocate(rowscoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rowscoarse array failed."
+  call allocatecoarse()
 
   xcoarse(1) = x(edges(1, 1))
   do i = 2, n_nodes
@@ -372,6 +354,28 @@ deallocate(x, phi, dphi)
 
 CONTAINS ! define all internal procedures
 
+subroutine allocatecoarse()
+  implicit none
+  allocate(xcoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of xcoarse array failed."
+  allocate(hlocal(n_el), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of hlocal array failed."
+  allocate(LMcoarse(2, n_el), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of LMcoarse array failed."
+  allocate(rglobcoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rglobcoarse array failed."
+  allocate(acoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of acoarse array failed."
+  allocate(zcoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of zcoarse array failed."
+  allocate(rescoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rescoarse array failed."
+  allocate(LMcountcoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of LMcountcoarse array failed."
+  allocate(rowscoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rowscoarse array failed."
+end subroutine allocatecoarse
+
 subroutine allocateDDdata()
   implicit none
   allocate(xel(numnodes(rank + 1)), stat = AllocateStatus)
@@ -484,13 +488,10 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs)
   real(8) :: lambda, theta
   integer :: cnt
 
-  !res         = rglob - sparse_mult(kel, LM, a)
   res         = rglob - csr_mult(rows, a, BCs)
   z           = res
-  !lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
   lambda      = dotprod(z, res)/csr_mult_dot(rows, z, BCs, z)
   a           = a + lambda * z
-  !res         = rglob - sparse_mult(kel, LM, a)
   res         = rglob - csr_mult(rows, a, BCs)
   convergence = 0.0
  
@@ -500,14 +501,10 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs)
   
   cnt = 0
   do while (convergence > tol)
-    !theta       = sparse_mult_dot(kel, LM, z, res, BCs) &
-    !              / sparse_mult_dot(kel, LM, z, z, BCs)
     theta       = csr_mult_dot(rows, z, BCs, res) / csr_mult_dot(rows, z, BCs, z)
     z           = res - theta * z
-    !lambda      = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z, BCs)
     lambda      = dotprod(z, res) / csr_mult_dot(rows, z, BCs, z)
     a           = a + lambda * z
-    !res         = rglob - sparse_mult(kel, LM, a)
     res         = rglob - csr_mult(rows, a, BCs)
     convergence = 0.0
     
@@ -519,13 +516,6 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs)
   cnt = cnt + 1
   end do
 end subroutine conjugategradient
-
-
-integer function kronecker(i, j)
-  implicit none
-  integer :: i, j
-  kronecker = int((float((i + j) - abs(i - j))) / (float((i + j) + abs(i - j))))
-end function kronecker
 
 
 real function dotprod(vec1, vec2)
@@ -541,35 +531,6 @@ real function dotprod(vec1, vec2)
   end do
   !!$omp end parallel do
 end function dotprod
-
-
-function sparse_mult_dot(matrix, LM, vector, vecdot, BCs)
-  implicit none
-  real(8) :: matrix(:, :) ! elementary matrix
-  real(8) :: vector(:)    ! full vector
-  real(8) :: vecdot(:)    ! vector to take dot product with
-  integer :: LM(:, :)     ! location matrix
-  integer :: BCs(:)       ! list of BC nodes
- 
-  real(8)  :: sparse_mult_dot
-  integer  :: i, j, q 
- 
-  sparse_mult_dot = 0.0
-  do q = 1, n_el ! loop over the elements
-    do i = 1, 2 ! loop over all entries in kel
-      if (any(BCs == LM(i, q))) then ! apply boundary conditions
-          sparse_mult_dot = sparse_mult_dot + & 
-                            vecdot(LM(i, q)) * kronecker(LM(i, q), LM(1, q)) * vector(LM(1, q)) + &
-                            vecdot(LM(i, q)) * kronecker(LM(i, q), LM(2, q)) * vector(LM(2, q))
-      else
-        ! implicitly assumes that the matrix is symmetric (ok for this application)
-          sparse_mult_dot = sparse_mult_dot + &
-                            vecdot(LM(i, q)) * matrix(1, i) * vector(LM(1, q)) + &
-                            vecdot(LM(i, q)) * matrix(2, i) * vector(LM(2, q))
-      end if
-    end do
-  end do
-end function sparse_mult_dot
 
 
 function csr_mult_dot(rows, a, BCs, vector)
@@ -636,35 +597,6 @@ function csr_mult(rows, a, BCs)
   csr_mult(BCs(1)) = a(BCs(1))
   csr_mult(BCs(2)) = a(BCs(2))
 end function csr_mult
-
-
-function sparse_mult(matrix, LM, vector)
-  implicit none
-  real(8) :: matrix(:, :) ! elementary matrix (assumed-shape array)
-  real(8) :: vector(:)    ! full vector (assumed-shape array)
-  integer  :: LM(:, :)     ! location matrix
- 
-  ! return value of function, as an automatic array
-  real(8) :: sparse_mult(size(vector))
-  
-  integer :: i, j, q ! looping variables
-  sparse_mult = 0.0
-   
-  do q = 1, n_el ! loop over the elements
-    do i = 1, 2 ! loop over all entries in kel
-      if (any(BCs == LM(i, q))) then 
-          ! diagonal terms set to 1.0, off-diagonal set to 0.0
-          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
-                                  kronecker(LM(i, q), LM(1, q)) * vector(LM(1, q)) + &
-                                  kronecker(LM(i, q), LM(2, q)) * vector(LM(2, q))
-      else
-          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
-                                  matrix(i, 1) * vector(LM(1, q)) + &
-                                  matrix(i, 2) * vector(LM(2, q))
-      end if
-    end do
-  end do
-end function sparse_mult
 
 
 subroutine locationmatrix(LM, n_el)
