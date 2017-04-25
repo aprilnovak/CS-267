@@ -109,8 +109,6 @@ open(20, file='setup.nml')
 read(20, FEM)
 close(20)
 
-!savesoln = .false. ! do not write to output file
-
 call cpu_time(start)
 
 ! initialize variables that are known to all MPI processes
@@ -142,6 +140,7 @@ call initializedecomp()         ! initialize domain decomposition
 ! perform a coarse solution to get initial guesses for the interface values
 ! this only needs to be performed by the rank 0 process
 if (rank == 0) then
+  call cpu_time(startCG)
   n_el    = numprocs
   n_nodes = numprocs + 1
   
@@ -188,10 +187,13 @@ if (rank == 0) then
 
   deallocate(xcoarse, LMcoarse, rglobcoarse, acoarse, hlocal)  
   deallocate(LMcountcoarse, rowscoarse)
+  call cpu_time(endCG)
+  print *, 'coarse solution time: ', endCG - startCG
 end if
 
 call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
 
+if (rank == 0) call cpu_time(startCSR)
 ! Specify the domain decomposition parameters for each domain -----------------
 n_el    = elems(rank + 1)
 n_nodes = numnodes(rank + 1)
@@ -211,6 +213,12 @@ call csr(rows, kel, LM, LMcount, n_nodes, n_el) ! form CSR storage
 m = (BCvals(2) - BCvals(1)) / (xel(n_nodes) - xel(1))
 a = m * (xel - xel(1)) + BCvals(1)
 
+if (rank == 0) then
+  call cpu_time(endCSR)
+  print *, 'DD setup time: ', endCSR - startCSR
+end if
+
+if (rank == 0) call cpu_time(startCG)
 ddcnt = 0
 do while (itererror > ddtol)
   ! save the previous values of the interface BCs
@@ -256,6 +264,11 @@ do while (itererror > ddtol)
   call mpi_barrier(mpi_comm_world, ierr)
   ddcnt = ddcnt + 1
 end do ! ends outermost domain decomposition loop
+
+if (rank == 0) then
+  call cpu_time(endCG)
+  print *, 'DD loop time: ', endCG - startCG
+end if
 
 ! each processor broadcasts its final solution to the rank 0 process ----------
 call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
@@ -460,19 +473,19 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs)
   
   ! local variables
   real(8) :: lambda, theta
-  integer :: cnt
+  integer :: cnt, n
 
-  !res         = rglob - csr_mult(rows, a, BCs)
+  n = size(a)
+
   res         = csr_mult_sub(rows, a, BCs, rglob)
   z           = res
   lambda      = dotprod(z, res)/csr_mult_dot(rows, z, BCs, z)
   a           = a + lambda * z
-  !res         = rglob - csr_mult(rows, a, BCs)
   res         = csr_mult_sub(rows, a, BCs, rglob)
   convergence = 0.0
   
-  !$omp parallel do default(none) shared(res) private(i) reduction(+:convergence) 
-  do i = 1, size(res)
+  !$omp parallel do default(none) shared(res, n) private(i) reduction(+:convergence) 
+  do i = 1, n
     convergence = convergence + abs(res(i))
   end do
   !$omp end parallel do
@@ -480,15 +493,26 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs)
   cnt = 0
   do while (convergence > tol)
     theta       = csr_mult_dot(rows, z, BCs, res) / csr_mult_dot(rows, z, BCs, z)
-    z           = res - theta * z
+    
+    !$omp parallel do default(none) shared(n, z, res, theta) private(i) schedule(static)
+    do i = 1, n
+      z(i)      = res(i) - theta * z(i)
+    end do
+    !$omp end parallel do
+
     lambda      = dotprod(z, res) / csr_mult_dot(rows, z, BCs, z)
-    a           = a + lambda * z
-    !res         = rglob - csr_mult(rows, a, BCs)
+    
+    !$omp parallel do default(none) shared(a, lambda, z, n) private(i) schedule(static)
+    do i = 1, n
+      a(i)      = a(i) + lambda * z(i)
+    end do
+    !$omp end parallel do
+
     res         = csr_mult_sub(rows, a, BCs, res)
     convergence = 0.0
   
-    !$omp parallel do default(none) shared(res) private(i) reduction(+:convergence) 
-    do i = 1, size(res)
+    !$omp parallel do default(none) shared(res, n) private(i) reduction(+:convergence) 
+    do i = 1, n
       convergence = convergence + abs(res(i))
     end do
     !$omp end parallel do
@@ -721,11 +745,11 @@ subroutine initialize(h, x, n_el, n_nodes)
   allocate(x(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
 
-  !!$omp parallel do default(none) shared(x, h, n_nodes) private(i)
+  !$omp parallel do default(none) shared(x, h, n_nodes) private(i)
   do i = 1, n_nodes
     x(i) = real(i - 1) * h
   end do
-  !!$omp end parallel do
+  !$omp end parallel do
 end subroutine initialize
 
 
