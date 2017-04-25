@@ -149,16 +149,8 @@ if (rank == 0) then
   BCs    = (/ 1, n_nodes /) 
   BCvals = (/ leftBC, rightBC /)
 
-  call locationmatrix(LMcoarse, n_el)      ! form the location matrix
+  call locationmatrix(LMcoarse, LMcountcoarse, n_el)      ! form the location matrix
 
-  LMcountcoarse = 0
-  do j = 1, n_el
-    do i = 1, 2
-      LMcountcoarse(LMcoarse(i, j)) = LMcountcoarse(LMcoarse(i, j)) + 1
-    end do
-  end do
-  LMcountcoarse = LMcountcoarse + 1
-  
   ! form the global load vector
   rglobcoarse = 0.0
   do q = 1, n_el
@@ -210,7 +202,7 @@ end if
 
 call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
 
-! Specify the domain decomposition parameters for each separate domain
+! Specify the domain decomposition parameters for each domain -----------------
 n_el    = elems(rank + 1)
 n_nodes = numnodes(rank + 1)
 
@@ -221,24 +213,9 @@ BCs       = (/1, n_nodes/)
 BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
 
-call locationmatrix(LM, n_el)            ! form the location matrix
+call locationmatrix(LM, LMcount, n_el)   ! form the LM and count entries
 call globalload()                        ! form the global load vector
 
-! Determine the number of elements that contain each node (given as a 
-! vector of length n_nodes). Then, the formula to obtain the number of 
-! nonzero entries per row is (LMcount - 1 + n_en), so compute the number
-! of nonzero entries per row in the global stiffness matrix.
-LMcount = 0
-do j = 1, n_el
-  do i = 1, 2
-    LMcount(LM(i, j)) = LMcount(LM(i, j)) + 1
-  end do
-end do
-LMcount = LMcount + 1
-
-! allocate space for the data structures
-allocate(rows(n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 
 ! allocate space for the elements of the rows data structure
 ! The formula used to determine how many contributions are made in a row
@@ -378,7 +355,7 @@ end subroutine allocatecoarse
 
 subroutine allocateDDdata()
   implicit none
-  allocate(xel(numnodes(rank + 1)), stat = AllocateStatus)
+  allocate(xel(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
   allocate(LM(2, n_el), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
@@ -392,6 +369,8 @@ subroutine allocateDDdata()
   if (AllocateStatus /= 0) STOP "Allocation of res array failed."
   allocate(LMcount(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of LMcount array failed."
+  allocate(rows(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 end subroutine allocateDDdata
 
 
@@ -512,7 +491,6 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs)
       convergence = convergence + abs(res(i))
     end do
     
-    if (rank == 0) print *, 'convergence: ', convergence
   cnt = cnt + 1
   end do
 end subroutine conjugategradient
@@ -599,9 +577,10 @@ function csr_mult(rows, a, BCs)
 end function csr_mult
 
 
-subroutine locationmatrix(LM, n_el)
+subroutine locationmatrix(LM, LMcount, n_el)
   implicit none
   integer, intent(inout) :: LM(:, :)
+  integer, intent(inout) :: LMcount(:)
   integer, intent(in)    :: n_el
   integer                :: j
   
@@ -610,6 +589,18 @@ subroutine locationmatrix(LM, n_el)
     LM(:, j) = (/ j, j + 1 /)
   end do
   !!$omp end parallel do
+
+  ! Determine the number of elements that contain each node (given as a 
+  ! vector of length n_nodes). Then, the formula to obtain the number of 
+  ! nonzero entries per row is (LMcount - 1 + n_en), so compute the number
+  ! of nonzero entries per row in the global stiffness matrix.
+  LMcount = 0
+  do j = 1, n_el
+    do i = 1, 2
+      LMcount(LM(i, j)) = LMcount(LM(i, j)) + 1
+    end do
+  end do
+  LMcount = LMcount + 1
 end subroutine locationmatrix
 
 subroutine phi_val(qp)
