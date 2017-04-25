@@ -22,65 +22,65 @@ real(8)  :: finish             ! holds end run time
 ! variables to define the global problem
 integer                               :: n_el_global    ! global elements
 integer                               :: n_nodes_global ! global nodes
-integer                               :: n_qp           ! number of quadrature points
-real(8)                               :: length         ! length of the domain (1-D)
+integer                               :: n_qp           ! number of quad points
+real(8)                               :: length         ! length of the domain
 real(8)                               :: h              ! length of one element
 real(8)                               :: k              ! thermal conductivity
 real(8)                               :: source         ! uniform heat source
-real(8)                               :: leftBC         ! left Dirichlet BC value
-real(8)                               :: rightBC        ! right Dirichlet BC value
-integer, dimension(2)                 :: BCs            ! boundary condition nodes
-real(8), dimension(2, 2)              :: kel            ! elemental stiffness matrix
+real(8)                               :: leftBC         ! left Dirichlet BC
+real(8)                               :: rightBC        ! right Dirichlet BC
+integer, dimension(2)                 :: BCs            ! BC nodes
+real(8), dimension(2, 2)              :: kel            ! element stiffness mat
 real(8), dimension(2)                 :: rel            ! elemental load vector
-real(8), dimension(:),    allocatable :: soln           ! global solution vector
+real(8), dimension(:),    allocatable :: soln           ! global soln vector
 real(8), dimension(2)                 :: qp             ! quadrature points
 real(8), dimension(2)                 :: wt             ! quadrature weights
-real(8), dimension(:),    allocatable :: x              ! coordinates of the nodes
+real(8), dimension(:),    allocatable :: x              ! node coordinates
 real(8), dimension(:, :), allocatable :: phi            ! shape functions
-real(8), dimension(:, :), allocatable :: dphi           ! shape function derivatives
+real(8), dimension(:, :), allocatable :: dphi           ! shape function deriv
 integer, dimension(:, :), allocatable :: LM             ! location matrix
 
 ! variables to define the CG solver
 integer                            :: cnt         ! number of CG iterations
-real(8)                            :: convergence ! difference between CG iterations
+real(8)                            :: convergence ! difference b/w CG iterations
 real(8)                            :: tol         ! CG convergence tolerance
 real(8)                            :: m           ! slope of line
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
 
 ! variables to define the local problem
-integer                               :: n_el        ! number of (local) elements
+integer                               :: n_el        ! number of local elements
 integer                               :: n_nodes     ! number of (local) nodes
 integer                               :: numprocs    ! number of processors
-integer                               :: maxperproc  ! maximum number of elements per processor
+integer                               :: maxperproc  ! max elems per processor
 integer                               :: rank        ! processor rank
-integer                               :: ddcnt       ! domain decomposition counter
-real(8)                               :: itererror   ! whole-loop iteration error
-real(8)                               :: ddtol       ! domain decomposition loop tolerance
-integer                               :: ierr        ! holds error state for MPI calls
-integer, dimension(:, :), allocatable :: edges       ! nodes on edge of each domain
-integer, dimension(:),    allocatable :: recv_displs ! displacement of each domain
-real(8), dimension(:),    allocatable :: xel         ! coordinates in each domain
-integer, dimension(:),    allocatable :: numnodes    ! number of nodes in each domain
-integer, dimension(:),    allocatable :: LMcount     ! number of elements in row i of Kglob
+integer                               :: ddcnt       ! DD counter
+real(8)                               :: itererror   ! whole-loop iter error
+real(8)                               :: ddtol       ! DD loop tolerance
+integer                               :: ierr        ! error for MPI calls
+integer, dimension(:, :), allocatable :: edges       ! nodes on edge of domain
+integer, dimension(:),    allocatable :: recv_displs ! displacement of domain
+real(8), dimension(:),    allocatable :: xel         ! coordinates in domain
+integer, dimension(:),    allocatable :: numnodes    ! nodes in domain
+integer, dimension(:),    allocatable :: LMcount     ! elements in row i of K
 integer, dimension(:),    allocatable :: elems       ! n_el in each domain
 real(8), dimension(:),    allocatable :: rglob       ! global load vector
 real(8), dimension(:),    allocatable :: a           ! CG solution iterates
 integer, dimension(mpi_status_size)   :: stat        ! MPI send/receive status
-real(8), dimension(2)                 :: prev        ! previous interface values
-real(8), dimension(2)                 :: BClocals    ! values of BCs for each interface
-real(8), dimension(2)                 :: BCvals      ! values of BCs for each domain
+real(8), dimension(2)                 :: prev        ! prev interface values
+real(8), dimension(2)                 :: BClocals    ! BCs for each interface
+real(8), dimension(2)                 :: BCvals      ! BCs for each domain
 
 ! variables to define the coarse-mesh solution
-real(8), dimension(:),    allocatable :: hlocal      ! coarse element lengths
-real(8), dimension(:),    allocatable :: zcoarse     ! coarse CG vector
-real(8), dimension(:),    allocatable :: rescoarse   ! coarse CG residual vector 
-real(8), dimension(:),    allocatable :: rglobcoarse ! global load vector, coarse mesh
-real(8), dimension(:),    allocatable :: xcoarse     ! coordinates of the shared nodes
-real(8), dimension(:),    allocatable :: acoarse     ! coarse-mesh solution
-real(8), dimension(:, :), allocatable :: BCcoarse    ! coarse solution BCs
-integer, dimension(:),    allocatable :: LMcountcoarse ! number of elements in row i of Kglob
-integer, dimension(:, :), allocatable :: LMcoarse    ! location matrix of coarse problem
+real(8), dimension(:),    allocatable :: hlocal        ! coarse element lengths
+real(8), dimension(:),    allocatable :: zcoarse       ! CG vector
+real(8), dimension(:),    allocatable :: rescoarse     ! CG residual vector
+real(8), dimension(:),    allocatable :: rglobcoarse   ! global load vector
+real(8), dimension(:),    allocatable :: xcoarse       ! coords of shared nodes
+real(8), dimension(:),    allocatable :: acoarse       ! coarse-mesh solution
+real(8), dimension(:, :), allocatable :: BCcoarse      ! coarse solution BCs
+integer, dimension(:),    allocatable :: LMcountcoarse ! elements in row i of K
+integer, dimension(:, :), allocatable :: LMcoarse      ! LM of coarse problem
 
 ! variables to define OpenMP thread parallelism
 integer :: numthreads ! number of OpenMP threads
@@ -90,13 +90,13 @@ integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
 ! variables to implement CSR matrix storage
 type row
-  real(8), allocatable, dimension(:) :: values    ! values in each row
-  integer, allocatable, dimension(:) :: columns   ! nonzero column numbers in each row
-  integer                            :: entri = 1 ! entry that is next to be filled    
+  real(8), allocatable, dimension(:) :: values     ! values in each row
+  integer, allocatable, dimension(:) :: columns    ! nonzero col nums per row
+  integer                            :: entri = 1  ! entry next to be filled    
 end type row
 
-type(row), allocatable, dimension(:) :: rows    ! row-type rows in global K matrix
-type(row), allocatable, dimension(:) :: rowscoarse    ! row-type rows in coarse global K matrix
+type(row), allocatable, dimension(:) :: rows       ! rows in global K
+type(row), allocatable, dimension(:) :: rowscoarse ! rows in coarse global K
 
 ! read in variable values for simulation from namelist
 namelist /FEM/ k, source, n_qp, tol, ddtol
@@ -111,13 +111,13 @@ call cpu_time(start)
 call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
 call initialize(h, x, n_el, n_nodes)              ! initialize problem vars
 call quadrature(qp, wt, n_qp)                     ! initialize quadrature
-call phi_val(qp)                                  ! initialize shape functions
-call elementalmatrices()                          ! form elemental matrices and vectors
+call phi_val(qp)                                  ! initialize shape funcs
+call elementalmatrices()                          ! form elemental mats & vecs
 
 n_nodes_global = n_nodes
 n_el_global    = n_el
 
-! initialize the parallel MPI environment with mpi_thread_single level of thread support
+! initialize the parallel MPI environment with mpi_thread_single thread support
 call mpi_init_thread(0, provided, ierr)
 call mpi_comm_size(mpi_comm_world, numprocs, ierr)
 call mpi_comm_rank(mpi_comm_world, rank, ierr)
@@ -129,8 +129,8 @@ if (rank == 0) then
   soln = 0.0
 end if
 
-call allocatedecomp()                     ! allocate space for decompsition data
-call initializedecomp()                   ! initialize domain decomposition
+call allocatedecomp()           ! allocate space for decompsition data
+call initializedecomp()         ! initialize domain decomposition
 
 ! perform a coarse solution to get initial guesses for the interface values
 ! this only needs to be performed by the rank 0 process
@@ -162,24 +162,7 @@ if (rank == 0) then
   rglobcoarse(BCs(1)) = BCvals(1)
   rglobcoarse(BCs(2)) = BCvals(2)   
 
-  ! allocate space for the elements of the rows data structure
-  ! The formula used to determine how many contributions are made in a row
-  ! would need to be redetermined for higher-dimensional meshes. 
-  do i = 1, n_nodes
-    allocate(rowscoarse(i)%values(2 * LMcountcoarse(i) - 2))
-    allocate(rowscoarse(i)%columns(2 * LMcountcoarse(i) - 2))
-  end do
-
-  ! populate vectors of values and the columns they belong in
-  do q = 1, n_el
-    do i = 1, 2
-      do j = 1, 2
-        rowscoarse(LMcoarse(i, q))%columns(rowscoarse(LMcoarse(i, q))%entri) = LMcoarse(j, q)
-        rowscoarse(LMcoarse(i, q))%values(rowscoarse(LMcoarse(i, q))%entri)  = kel(i, j)
-        rowscoarse(LMcoarse(i, q))%entri = rowscoarse(LMcoarse(i, q))%entri + 1
-      end do
-    end do
-  end do
+  call csr(rowscoarse, kel, LMcoarse, LMcountcoarse, n_nodes, n_el)
 
   ! initial guess is a straight line between the two endpoints
   m = (rightBC - leftBC) / length
@@ -213,65 +196,38 @@ BCs       = (/1, n_nodes/)
 BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
 
-call locationmatrix(LM, LMcount, n_el)   ! form the LM and count entries
-call globalload()                        ! form the global load vector
-
-
-! allocate space for the elements of the rows data structure
-! The formula used to determine how many contributions are made in a row
-! would need to be redetermined for higher-dimensional meshes. 
-do i = 1, n_nodes
-  allocate(rows(i)%values(2 * LMcount(i) - 2))
-  allocate(rows(i)%columns(2 * LMcount(i) - 2))
-end do
-
-! populate vectors of values and the columns they belong in
-do q = 1, n_el
-  do i = 1, 2
-    do j = 1, 2
-      rows(LM(i, q))%columns(rows(LM(i, q))%entri) = LM(j, q)
-      rows(LM(i, q))%values(rows(LM(i, q))%entri)  = kel(i, j)
-      rows(LM(i, q))%entri = rows(LM(i, q))%entri + 1
-    end do
-  end do
-end do
-
-
-
-
-
+call locationmatrix(LM, LMcount, n_el)          ! form LM and count entries
+call globalload()                               ! form global load vector
+call csr(rows, kel, LM, LMcount, n_nodes, n_el) ! form CSR storage
 
 ! initial guess is a straight line between the two endpoints
 m = (BCvals(2) - BCvals(1)) / (xel(n_nodes) - xel(1))
 a = m * (xel - xel(1)) + BCvals(1)
-
-
-
 
 ddcnt = 0
 do while (itererror > ddtol)
   ! save the previous values of the interface BCs
   prev = BCvals
 
-  ! each processor solves for its domain ------------------------------------------
+  ! each processor solves for its domain --------------------------------------
   rglob(BCs(1)) = BCvals(1)
   rglob(BCs(2)) = BCvals(2)   
  
   call conjugategradient(rows, a, rglob, z, res, BCs)
   
-  ! each processor sends a boundary value to the processor to the right -----------
+  ! each processor sends a boundary value to the processor to the right -------
   if (rank /= numprocs - 1) then
     call mpi_send(a(n_nodes - 1), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
   end if
 
-  ! processor to the right receives the message -----------------------------------
+  ! processor to the right receives the message -------------------------------
   if (rank /= 0) then
     call mpi_recv(BClocals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
     ! assign other local boundary condition
     BClocals(2) = a(2)
   end if
 
-  ! each processor solves its interface problem -----------------------------------
+  ! each processor solves its interface problem -------------------------------
   if (rank /= 0) then
     BCvals(1) = (rel(2) + rel(1) - kel(2, 1) * BClocals(2) &
                       - kel(1, 2) * BClocals(1)) / (kel(2, 2) + kel(1, 1))
@@ -279,27 +235,27 @@ do while (itererror > ddtol)
     call mpi_send(BCvals(1), 1, mpi_real8, rank - 1, rank, mpi_comm_world, ierr)
   end if
 
-  ! rank - 1 process receives from the process to the right -----------------------
+  ! rank - 1 process receives from the process to the right -------------------
   if (rank /= numprocs - 1) then
     call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1, mpi_comm_world, stat, ierr)
   end if
 
-  ! compute iteration error to determine whether to continue looping -------------- 
+  ! compute iteration error to determine whether to continue looping ---------- 
   call mpi_barrier(mpi_comm_world, ierr)
 
-  call mpi_allreduce(abs(BCvals(2) - prev(2) + BCvals(1) - prev(1)), itererror, 1, & 
-                     mpi_real8, mpi_sum, mpi_comm_world, ierr)  
+  call mpi_allreduce(abs(BCvals(2) - prev(2) + BCvals(1) - prev(1)), itererror,&
+                     1, mpi_real8, mpi_sum, mpi_comm_world, ierr)  
  
   call mpi_barrier(mpi_comm_world, ierr)
   ddcnt = ddcnt + 1
 end do ! ends outermost domain decomposition loop
 
-! each processor broadcasts its final solution to the rank 0 process --------------
+! each processor broadcasts its final solution to the rank 0 process ----------
 call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
-                    soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, &
-                    0, mpi_comm_world, ierr)
+                 soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, &
+                 0, mpi_comm_world, ierr)
 
-! write results to output file ----------------------------------------------------
+! write results to output file ------------------------------------------------
 if (rank == 0) then
   soln(n_nodes_global) = rightBC 
   ! write to an output file. If this file exists, it will be re-written.
@@ -309,17 +265,16 @@ if (rank == 0) then
   write(1, *) numprocs, n_el_global, ddcnt, soln
 end if
 
-! final timing results ----------------------------------------------------------
+! final timing results --------------------------------------------------------
 if (rank == 0) then
   call cpu_time(finish)
   print *, 'P: ', numprocs, 'n_el: ', n_el_global, 'runtime: ', finish - start
 end if
 
-! deallocate memory -------------------------------------------------------------
+! deallocate memory -----------------------------------------------------------
 deallocate(xel, LM, rglob, a, z, res)
 deallocate(numnodes, elems, edges, recv_displs, BCcoarse, LMcount)
 deallocate(rows)
-
 if (rank == 0) deallocate(soln)
 
 call mpi_finalize(ierr)
@@ -388,6 +343,38 @@ subroutine allocatedecomp()
   allocate(BCcoarse(2, numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of BCcoarse array failed."
 end subroutine allocatedecomp
+
+
+subroutine csr(rows, kel, LM, LMcount, n_nodes, n_el)
+  implicit none
+  type(row), intent(inout) :: rows(:)
+  real(8), intent(in) :: kel(:, :)
+  integer, intent(in) :: LM(:, :)
+  integer, intent(in) :: LMcount(:)
+  integer, intent(in) :: n_nodes
+  integer, intent(in) :: n_el
+
+  integer :: i, j, q
+
+  ! allocate space for the elements of the rows data structure
+  ! The formula used to determine how many contributions are made in a row
+  ! would need to be redetermined for higher-dimensional meshes. 
+  do i = 1, n_nodes
+    allocate(rows(i)%values(2 * LMcount(i) - 2))
+    allocate(rows(i)%columns(2 * LMcount(i) - 2))
+  end do
+  
+  ! populate vectors of values and the columns they belong in
+  do q = 1, n_el
+    do i = 1, 2
+      do j = 1, 2
+        rows(LM(i, q))%columns(rows(LM(i, q))%entri) = LM(j, q)
+        rows(LM(i, q))%values(rows(LM(i, q))%entri)  = kel(i, j)
+        rows(LM(i, q))%entri = rows(LM(i, q))%entri + 1
+      end do
+    end do
+  end do
+end subroutine csr
 
 
 subroutine initializedecomp()
