@@ -399,11 +399,11 @@ subroutine initializedecomp()
   end do
  
   ! assign the numbers of nodes in each domain 
-  !$omp parallel do default(private) shared(numprocs, elems, numnodes) private(j)
+  !!$omp parallel do default(private) shared(numprocs, elems, numnodes) private(j)
   do j = 1, numprocs
     numnodes(j) = elems(j) * 2 - (elems(j) - 1)
   end do
-  !$omp end parallel do
+  !!$omp end parallel do
   
   ! assign the global node numbers that correspond to the edges of each domain
   edges(:, 1) = (/1, elems(1) * 2 - (elems(1) - 1)/)
@@ -438,8 +438,7 @@ subroutine elementalmatrices()
   rel = 0.0
   do q = 1, n_qp
     do i = 1, 2
-      rel(i) = rel(i) + wt(q) * source * phi(i, q) * h * h / 2.0
-      
+      rel(i)    = rel(i) + wt(q) * source * phi(i, q) * h * h / 2.0
       kel(i, 1) = kel(i, 1) + wt(q) * dphi(i, q) * k * dphi(1, q) * 2.0
       kel(i, 2) = kel(i, 2) + wt(q) * dphi(i, q) * k * dphi(2, q) * 2.0
     end do
@@ -462,11 +461,14 @@ subroutine conjugategradient(kel, a, LM, rglob, z, res, BCs)
   real(8) :: lambda, theta
   integer :: cnt
 
-  res         = rglob - sparse_mult(kel, LM, a)
+  !res         = rglob - sparse_mult(kel, LM, a)
+  res         = rglob - csr_mult(rows, a, BCs)
   z           = res
-  lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
+  !lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
+  lambda      = dotprod(z, res)/csr_mult_dot(rows, z, BCs, z)
   a           = a + lambda * z
-  res         = rglob - sparse_mult(kel, LM, a)
+  !res         = rglob - sparse_mult(kel, LM, a)
+  res         = rglob - csr_mult(rows, a, BCs)
   convergence = 0.0
  
   do i = 1, size(res)
@@ -475,12 +477,15 @@ subroutine conjugategradient(kel, a, LM, rglob, z, res, BCs)
   
   cnt = 0
   do while (convergence > tol)
-    theta       = sparse_mult_dot(kel, LM, z, res, BCs) &
-                  / sparse_mult_dot(kel, LM, z, z, BCs)
+    !theta       = sparse_mult_dot(kel, LM, z, res, BCs) &
+    !              / sparse_mult_dot(kel, LM, z, z, BCs)
+    theta       = csr_mult_dot(rows, z, BCs, res) / csr_mult_dot(rows, z, BCs, z)
     z           = res - theta * z
-    lambda      = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z, BCs)
+    !lambda      = dotprod(z, res) / sparse_mult_dot(kel, LM, z, z, BCs)
+    lambda      = dotprod(z, res) / csr_mult_dot(rows, z, BCs, z)
     a           = a + lambda * z
-    res         = rglob - sparse_mult(kel, LM, a)
+    !res         = rglob - sparse_mult(kel, LM, a)
+    res         = rglob - csr_mult(rows, a, BCs)
     convergence = 0.0
     
     do i = 1, size(res)
@@ -506,11 +511,11 @@ real function dotprod(vec1, vec2)
   
   dotprod = 0.0  
 
-  !$omp parallel do default(shared) private(i) reduction(+:dotprod)
+  !!$omp parallel do default(shared) private(i) reduction(+:dotprod)
   do i = 1, size(vec1)
     dotprod = dotprod + vec1(i) * vec2(i)
   end do
-  !$omp end parallel do
+  !!$omp end parallel do
 end function dotprod
 
 
@@ -644,11 +649,11 @@ subroutine locationmatrix(LM, n_el)
   integer, intent(in)    :: n_el
   integer                :: j
   
-  !$omp parallel do default(private) shared(n_el, LM) private(j)
+  !!$omp parallel do default(private) shared(n_el, LM) private(j)
   do j = 1, n_el
     LM(:, j) = (/ j, j + 1 /)
   end do
-  !$omp end parallel do
+  !!$omp end parallel do
 end subroutine locationmatrix
 
 subroutine phi_val(qp)
@@ -726,11 +731,11 @@ subroutine initialize(h, x, n_el, n_nodes)
   allocate(x(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
 
-  !$omp parallel do default(private) shared(x, h) private(i)
+  !!$omp parallel do default(private) shared(x, h) private(i)
   do i = 1, size(x)
     x(i) = real(i - 1) * h
   end do
-  !$omp end parallel do
+  !!$omp end parallel do
 end subroutine initialize
 
 
