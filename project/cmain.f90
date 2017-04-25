@@ -1,6 +1,6 @@
 ! non-overlapping interface
 ! each processor computes one interface problem
-! builds from bmain by adding openMP parallelism and CSR matrix storage
+! builds from bmain by adding CSR matrix storage
 
 ! program to solve the heat equation (Dirichlet boundary conditions only)
 ! using domain decomposition. This version has the domain to the left of
@@ -308,6 +308,7 @@ subroutine allocatecoarse()
   if (AllocateStatus /= 0) STOP "Allocation of rowscoarse array failed."
 end subroutine allocatecoarse
 
+
 subroutine allocateDDdata()
   implicit none
   allocate(xel(n_nodes), stat = AllocateStatus)
@@ -414,7 +415,6 @@ subroutine initializedecomp()
 end subroutine initializedecomp
 
 
-
 subroutine globalload()
   implicit none
   rglob = 0.0
@@ -426,7 +426,6 @@ end subroutine globalload
 
 subroutine elementalmatrices()
   implicit none
-
   kel = 0.0
   rel = 0.0
   do q = 1, n_qp
@@ -440,9 +439,6 @@ end subroutine elementalmatrices
 
 
 subroutine conjugategradient(rows, a, rglob, z, res, BCs)
-!subroutine conjugategradient(kel, a, LM, rglob, z, res, BCs)
-! solves K * a = rglob using the conjugate gradient method
-
   implicit none
   real(8), intent(inout) :: a(:)         ! resultant vector
   real(8), intent(inout) :: z(:), res(:) ! CG vectors
@@ -500,18 +496,16 @@ end function dotprod
 
 function csr_mult_dot(rows, a, BCs, vector)
   implicit none
-
   type(row) :: rows(:)
   real(8)   :: a(:)
   integer   :: BCs(:)
   real(8)   :: vector(:)
+  integer   :: n, i, j
+  real(8)   :: accum
+  real(8)   :: temp(size(a))
 
   ! return value of function
   real(8)   :: csr_mult_dot 
-
-  integer :: n, i, j
-  real(8) :: accum
-  real(8) :: temp(size(a))
 
   n = size(a)
  
@@ -523,30 +517,28 @@ function csr_mult_dot(rows, a, BCs, vector)
     temp(i) = accum * vector(i)
   end do
  
-  ! add boundary conditions after-the-fact
-  temp(BCs(1)) = a(BCs(1)) * vector(BCs(1))
-  temp(BCs(2)) = a(BCs(2)) * vector(BCs(2))
+  ! apply boundary conditions
+  do i = 1, size(BCs)
+    temp(BCs(i)) = a(BCs(i)) * vector(BCs(i))
+  end do
 
   csr_mult_dot = 0.0
   do i = 1, n
     csr_mult_dot = csr_mult_dot + temp(i)
   end do
-
 end function csr_mult_dot
 
 
 function csr_mult(rows, a, BCs)
   implicit none
- 
   type(row) :: rows(:)
   real(8)   :: a(:)
   integer   :: BCs(:)
-
+  integer   :: n, i, j
+  real(8)   :: accum
+  
   ! return value of function, as an automatic array
   real(8)   :: csr_mult(size(a))  
-
-  integer :: n, i, j
-  real(8) :: accum
 
   n = size(a)
  
@@ -558,9 +550,10 @@ function csr_mult(rows, a, BCs)
     csr_mult(i) = accum
   end do
  
-  ! add boundary conditions after-the-fact
-  csr_mult(BCs(1)) = a(BCs(1))
-  csr_mult(BCs(2)) = a(BCs(2))
+  ! apply boundary conditions
+  do i = 1, size(BCs)
+    csr_mult(BCs(i)) = a(BCs(i))
+  end do
 end function csr_mult
 
 
@@ -583,9 +576,8 @@ subroutine locationmatrix(LM, LMcount, n_el)
   ! of nonzero entries per row in the global stiffness matrix.
   LMcount = 0
   do j = 1, n_el
-    do i = 1, 2
-      LMcount(LM(i, j)) = LMcount(LM(i, j)) + 1
-    end do
+    LMcount(LM(1, j)) = LMcount(LM(1, j)) + 1
+    LMcount(LM(2, j)) = LMcount(LM(2, j)) + 1
   end do
   LMcount = LMcount + 1
 end subroutine locationmatrix
@@ -622,14 +614,13 @@ end subroutine quadrature
 
 subroutine commandline(n_el, length, leftBC, rightBC)
   implicit none
-  integer, intent(out)  :: n_el
+  integer, intent(out) :: n_el
   real(8), intent(out) :: length
   real(8), intent(out) :: leftBC
   real(8), intent(out) :: rightBC
- 
-  integer :: nargs            ! number of command line arguments
-  integer :: i                ! looping variable
-  character(len = 12) :: args ! command line argument
+  integer              :: nargs
+  integer              :: i
+  character(len = 12)  :: args
 
   nargs = command_argument_count()
 
