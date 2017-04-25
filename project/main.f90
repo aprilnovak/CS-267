@@ -134,7 +134,7 @@ a = m * x
 a = a + leftBC
 
 call cpu_time(startCG)
-call conjugategradient()
+call conjugategradient(a)
 call cpu_time(endCG)
 print *, 'CG iteration time: ', endCG - startCG
 
