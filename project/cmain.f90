@@ -261,6 +261,8 @@ a = m * (xel - xel(1)) + BCvals(1)
 if (rank == 0) then
   print *, 'original: ', sparse_mult(kel, LM, a)
   print *, 'new: ', csr_mult(rows, a, BCs)
+  print *, 'original: ', sparse_mult_dot(kel, LM, a, a, BCs)
+  print *, 'new: ', csr_mult_dot(rows, a, BCs, a)
 end if
 
 
@@ -539,6 +541,43 @@ function sparse_mult_dot(matrix, LM, vector, vecdot, BCs)
     end do
   end do
 end function sparse_mult_dot
+
+
+function csr_mult_dot(rows, a, BCs, vector)
+  implicit none
+
+  type(row) :: rows(:)
+  real(8)   :: a(:)
+  integer   :: BCs(:)
+  real(8)   :: vector(:)
+
+  ! return value of function
+  real(8)   :: csr_mult_dot 
+
+  integer :: n, i, j
+  real(8) :: accum
+  real(8) :: temp(size(a))
+
+  n = size(a)
+ 
+  do i = 1, n
+    accum = 0.0
+    do j = 1, size(rows(i)%columns(:))
+      accum = accum + rows(i)%values(j) * a(rows(i)%columns(j))
+    end do  
+    temp(i) = accum * vector(i)
+  end do
+ 
+  ! add boundary conditions after-the-fact
+  temp(BCs(1)) = a(BCs(1)) * vector(BCs(1))
+  temp(BCs(2)) = a(BCs(2)) * vector(BCs(2))
+
+  csr_mult_dot = 0.0
+  do i = 1, n
+    csr_mult_dot = csr_mult_dot + temp(i)
+  end do
+
+end function csr_mult_dot
 
 
 function csr_mult(rows, a, BCs)
