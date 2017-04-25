@@ -88,7 +88,6 @@ integer :: provided   ! holds provided level of thread support
 integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
 ! variables to implement CSR matrix storage
-real(8)                              :: accum     ! holds accumulated value
 real(8), dimension(:), allocatable   :: resultant ! product of matrix-vector multiplication
 
 type row
@@ -260,18 +259,8 @@ a = m * (xel - xel(1)) + BCvals(1)
 
 
 if (rank == 0) then
-  ! perform multiplication one row at a time
-  do i = 1, n_nodes
-    accum = 0.0
-    do j = 1, size(rows(i)%columns(:))
-      accum = accum + rows(i)%values(j) * a(rows(i)%columns(j))
-    end do  
-    resultant(i) = accum
-  end do
- 
-  ! add boundary conditions after-the-fact
-  resultant(BCs(1)) = a(BCs(1))
-  resultant(BCs(2)) = a(BCs(2))
+  print *, 'original: ', sparse_mult(kel, LM, a)
+  print *, 'new: ', csr_mult(rows, a, BCs)
 end if
 
 
@@ -550,6 +539,35 @@ function sparse_mult_dot(matrix, LM, vector, vecdot, BCs)
     end do
   end do
 end function sparse_mult_dot
+
+
+function csr_mult(rows, a, BCs)
+  implicit none
+ 
+  type(row) :: rows(:)
+  real(8)   :: a(:)
+  integer   :: BCs(:)
+
+  ! return value of function, as an automatic array
+  real(8)   :: csr_mult(size(a))  
+
+  integer :: n, i, j
+  real(8) :: accum
+
+  n = size(a)
+ 
+  do i = 1, n
+    accum = 0.0
+    do j = 1, size(rows(i)%columns(:))
+      accum = accum + rows(i)%values(j) * a(rows(i)%columns(j))
+    end do  
+    csr_mult(i) = accum
+  end do
+ 
+  ! add boundary conditions after-the-fact
+  csr_mult(BCs(1)) = a(BCs(1))
+  csr_mult(BCs(2)) = a(BCs(2))
+end function csr_mult
 
 
 function sparse_mult(matrix, LM, vector)
