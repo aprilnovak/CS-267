@@ -180,7 +180,7 @@ if (rank == 0) then
   m = (rightBC - leftBC) / length
   acoarse = m * (xcoarse - xcoarse(1)) + BCvals(1)
 
-  call conjugategradient(kel, acoarse, LMcoarse, rglobcoarse, zcoarse, rescoarse, BCs)
+  !call conjugategradient(kel, acoarse, LMcoarse, rglobcoarse, zcoarse, rescoarse, BCs)
   
   ! insert first-guess BCs into BCcoarse array, then broadcast to all processes
   BCcoarse(1, 1) = acoarse(1)
@@ -275,7 +275,7 @@ do while (itererror > ddtol)
   rglob(BCs(1)) = BCvals(1)
   rglob(BCs(2)) = BCvals(2)   
  
-  call conjugategradient(kel, a, LM, rglob, z, res, BCs)
+  call conjugategradient(rows, a, rglob, z, res, BCs)
   
   ! each processor sends a boundary value to the processor to the right -----------
   if (rank /= numprocs - 1) then
@@ -446,16 +446,18 @@ subroutine elementalmatrices()
 end subroutine elementalmatrices
 
 
-subroutine conjugategradient(kel, a, LM, rglob, z, res, BCs)
+subroutine conjugategradient(rows, a, rglob, z, res, BCs)
+!subroutine conjugategradient(kel, a, LM, rglob, z, res, BCs)
 ! solves K * a = rglob using the conjugate gradient method
 
   implicit none
   real(8), intent(inout) :: a(:)         ! resultant vector
   real(8), intent(inout) :: z(:), res(:) ! CG vectors
   real(8), intent(in)    :: rglob(:)     ! rhs vector
-  real(8), intent(in)    :: kel(:, :)    ! elementary stiffness matrix
-  integer, intent(in)    :: LM(:, :)     ! location matrix for multiplication
+  !real(8), intent(in)    :: kel(:, :)    ! elementary stiffness matrix
+  !integer, intent(in)    :: LM(:, :)     ! location matrix for multiplication
   integer, intent(in)    :: BCs(:)       ! BC nodes 
+  type(row), intent(in)  :: rows(:)      ! kglob in CSR form
   
   ! local variables
   real(8) :: lambda, theta
@@ -492,6 +494,7 @@ subroutine conjugategradient(kel, a, LM, rglob, z, res, BCs)
       convergence = convergence + abs(res(i))
     end do
     
+    if (rank == 0) print *, 'convergence: ', convergence
   cnt = cnt + 1
   end do
 end subroutine conjugategradient
