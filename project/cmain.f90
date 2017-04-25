@@ -16,8 +16,13 @@ include 'mpif.h'
 ! variables for overall execution
 integer  :: AllocateStatus     ! variable to hold memory allocation success
 integer  :: i, j, q            ! loop iteration variables
-real(8)  :: start              ! holds start run time
-real(8)  :: finish             ! holds end run time
+real(8)  :: start              ! start run time
+real(8)  :: finish             ! end run time
+real(8)  :: startCG            ! start CG time
+real(8)  :: endCG              ! end CG time
+real(8)  :: startCSR           ! start CSR time
+real(8)  :: endCSR             ! end CSR time
+logical  :: savesoln           ! save solution to file
 
 ! variables to define the global problem
 integer                               :: n_el_global    ! global elements
@@ -103,6 +108,8 @@ namelist /FEM/ k, source, n_qp, tol, ddtol
 open(20, file='setup.nml')
 read(20, FEM)
 close(20)
+
+savesoln = .false. ! do not write to output file
 
 call cpu_time(start)
 
@@ -256,7 +263,7 @@ call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
                  0, mpi_comm_world, ierr)
 
 ! write results to output file ------------------------------------------------
-if (rank == 0) then
+if ((rank == 0) .and. (savesoln)) then
   soln(n_nodes_global) = rightBC 
   ! write to an output file. If this file exists, it will be re-written.
   open(1, file='output.txt', iostat=AllocateStatus, status="replace")
