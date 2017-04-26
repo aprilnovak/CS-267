@@ -10,8 +10,13 @@
 
 PROGRAM main
 
+! must precede any implicit statements
+!use matrices, only : hello
+
 implicit none
+
 include 'mpif.h'
+
 
 ! variables for overall execution
 integer  :: AllocateStatus     ! variable to hold memory allocation success
@@ -108,6 +113,8 @@ open(20, file='setup.nml')
 read(20, FEM)
 close(20)
 
+
+!call hello()
 call cpu_time(start)
 
 ! initialize variables that are known to all MPI processes
@@ -429,12 +436,9 @@ function globalload(LM, rel, n_el, n_nodes)
   implicit none
   integer, intent(in)    :: LM(:, :)
   real(8), intent(in)    :: rel(:)
-  integer, intent(in)    :: n_el
-  integer, intent(in)    :: n_nodes
-
-  integer :: q
-
-  real(8) :: globalload(n_nodes)
+  integer, intent(in)    :: n_el, n_nodes
+  real(8)                :: globalload(n_nodes)
+  integer                :: q
 
   globalload = 0.0
   do q = 1, n_el
