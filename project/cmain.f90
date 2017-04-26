@@ -10,6 +10,12 @@
 
 PROGRAM main
 
+! read input information
+use read_data
+
+! define quantities related to the mesh
+!use mesh
+
 ! define the quadrature rule
 use quadrature
 
@@ -35,15 +41,15 @@ real(8)  :: startCSR           ! start CSR time
 real(8)  :: endCSR             ! end CSR time
 
 ! variables to define the global problem
-integer                               :: n_el_global    ! global elements
+!integer                               :: n_el_global    ! global elements
 integer                               :: n_nodes_global ! global nodes
 integer                               :: n_qp           ! number of quad points
-real(8)                               :: length         ! length of the domain
+!real(8)                               :: length         ! length of the domain
 real(8)                               :: h              ! length of one element
 real(8)                               :: k              ! thermal conductivity
 real(8)                               :: source         ! uniform heat source
-real(8)                               :: leftBC         ! left Dirichlet BC
-real(8)                               :: rightBC        ! right Dirichlet BC
+!real(8)                               :: leftBC         ! left Dirichlet BC
+!real(8)                               :: rightBC        ! right Dirichlet BC
 integer, dimension(2)                 :: BCs            ! BC nodes
 real(8), dimension(:),    allocatable :: soln           ! global soln vector
 real(8), dimension(:),    allocatable :: x              ! node coordinates
@@ -111,8 +117,11 @@ call cpu_time(start)
 
 ! initialize variables that are known to all MPI processes
 ! instead of having one process compute these and then broadcast
-call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
-call initialize(h, x, n_el, n_nodes)              ! initialize problem vars
+
+call read_commandline()
+
+!call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
+call initialize(h, x, n_el_global, n_nodes)              ! initialize problem vars
 
 call define_quadset(n_qp)
 call define_shapefunctions()
@@ -120,7 +129,6 @@ call elementalload(source, h)
 call elementalstiffness(k)
 
 n_nodes_global = n_nodes
-n_el_global    = n_el
 
 ! initialize the parallel MPI environment with mpi_thread_single thread support
 call mpi_init_thread(0, provided, ierr)
@@ -358,22 +366,20 @@ subroutine initializedecomp()
   implicit none
 
   ! distribute the elements among the processors 
-  maxperproc = (n_el + numprocs - 1) / numprocs
+  maxperproc = (n_el_global + numprocs - 1) / numprocs
   elems = maxperproc
  
   i = 1
-  do j = maxperproc * numprocs - n_el, 1, -1
+  do j = maxperproc * numprocs - n_el_global, 1, -1
     elems(i) = elems(i) - 1
     i = i + 1
     if (i == numprocs + 1) i = 1
   end do
  
   ! assign the numbers of nodes in each domain 
-  !!$omp parallel do default(private) shared(numprocs, elems, numnodes) private(j)
   do j = 1, numprocs
     numnodes(j) = elems(j) * 2 - (elems(j) - 1)
   end do
-  !!$omp end parallel do
   
   ! assign the global node numbers that correspond to the edges of each domain
   edges(:, 1) = (/1, elems(1) * 2 - (elems(1) - 1)/)
@@ -606,11 +612,9 @@ subroutine initialize(h, x, n_el, n_nodes)
   allocate(x(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
 
-  !!$omp parallel do default(private) shared(x, h) private(i)
   do i = 1, size(x)
     x(i) = real(i - 1) * h
   end do
-  !!$omp end parallel do
 end subroutine initialize
 
 
