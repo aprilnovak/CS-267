@@ -41,15 +41,11 @@ real(8)  :: startCSR           ! start CSR time
 real(8)  :: endCSR             ! end CSR time
 
 ! variables to define the global problem
-!integer                               :: n_el_global    ! global elements
 integer                               :: n_nodes_global ! global nodes
-integer                               :: n_qp           ! number of quad points
-!real(8)                               :: length         ! length of the domain
+!integer                               :: n_qp           ! number of quad points
 real(8)                               :: h              ! length of one element
-real(8)                               :: k              ! thermal conductivity
-real(8)                               :: source         ! uniform heat source
-!real(8)                               :: leftBC         ! left Dirichlet BC
-!real(8)                               :: rightBC        ! right Dirichlet BC
+!real(8)                               :: k              ! thermal conductivity
+!real(8)                               :: source         ! uniform heat source
 integer, dimension(2)                 :: BCs            ! BC nodes
 real(8), dimension(:),    allocatable :: soln           ! global soln vector
 real(8), dimension(:),    allocatable :: x              ! node coordinates
@@ -58,7 +54,7 @@ integer, dimension(:, :), allocatable :: LM             ! location matrix
 ! variables to define the CG solver
 integer                            :: cnt         ! number of CG iterations
 real(8)                            :: convergence ! difference b/w CG iterations
-real(8)                            :: reltol      ! CG relative tolerance
+!real(8)                            :: reltol      ! CG relative tolerance
 real(8)                            :: m           ! slope of line
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
@@ -71,7 +67,7 @@ integer                               :: maxperproc  ! max elems per processor
 integer                               :: rank        ! processor rank
 integer                               :: ddcnt       ! DD counter
 real(8)                               :: itererror   ! whole-loop iter error
-real(8)                               :: ddtol       ! DD loop tolerance
+!real(8)                               :: ddtol       ! DD loop tolerance
 integer                               :: ierr        ! error for MPI calls
 integer, dimension(:, :), allocatable :: edges       ! nodes on edge of domain
 integer, dimension(:),    allocatable :: recv_displs ! displacement of domain
@@ -106,21 +102,18 @@ integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 type(row), allocatable, dimension(:) :: rows       ! rows in global K
 type(row), allocatable, dimension(:) :: rowscoarse ! rows in coarse global K
 
-! read in variable values for simulation from namelist
-namelist /FEM/ k, source, n_qp, reltol, ddtol
-open(20, file='setup.nml')
-read(20, FEM)
-close(20)
-
-
 call cpu_time(start)
 
 ! initialize variables that are known to all MPI processes
 ! instead of having one process compute these and then broadcast
 
+! read information from namelist
+call read_namelist()
+
+! read information from the command line
 call read_commandline()
 
-!call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
+
 call initialize(h, x, n_el_global, n_nodes)              ! initialize problem vars
 
 call define_quadset(n_qp)
@@ -566,36 +559,6 @@ subroutine locationmatrix(LM, LMcount, n_el)
     LMcount(LM(2, j)) = LMcount(LM(2, j)) + 1
   end do
 end subroutine locationmatrix
-
-
-subroutine commandline(n_el, length, leftBC, rightBC)
-  implicit none
-  integer, intent(out) :: n_el
-  real(8), intent(out) :: length
-  real(8), intent(out) :: leftBC
-  real(8), intent(out) :: rightBC
-  integer              :: nargs
-  integer              :: i
-  character(len = 12)  :: args
-
-  nargs = command_argument_count()
-
-  do i = 1, nargs
-    call get_command_argument(i, args)
-    select case (i)
-      case(1)
-        read(args, *), length
-      case(2)
-        read(args, *) n_el
-      case(3)
-        read(args, *) leftBC
-      case(4)
-        read(args, *) rightBC
-      case default
-        write(*,*) "Too many command line parameters."
-    end select  
-  enddo
-end subroutine commandline
 
 
 subroutine initialize(h, x, n_el, n_nodes)
