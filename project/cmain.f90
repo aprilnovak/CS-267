@@ -201,7 +201,7 @@ BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
 
 call locationmatrix(LM, LMcount, n_el)          ! form LM and count entries
-call globalload()                               ! form global load vector
+rglob = globalload(LM, rel, n_el, n_nodes)      ! form global load vector
 call csr(rows, kel, LM, LMcount, n_nodes, n_el) ! form CSR storage
 
 ! initial guess is a straight line between the two endpoints
@@ -423,13 +423,22 @@ subroutine initializedecomp()
 end subroutine initializedecomp
 
 
-subroutine globalload()
+function globalload(LM, rel, n_el, n_nodes)
   implicit none
-  rglob = 0.0
+  integer, intent(in)    :: LM(:, :)
+  real(8), intent(in)    :: rel(:)
+  integer, intent(in)    :: n_el
+  integer, intent(in)    :: n_nodes
+
+  integer :: q
+
+  real(8) :: globalload(n_nodes)
+
+  globalload = 0.0
   do q = 1, n_el
-      rglob(LM(:, q)) = rglob(LM(:, q)) + rel(:)
+      globalload(LM(:, q)) = globalload(LM(:, q)) + rel(:)
   end do
-end subroutine globalload
+end function globalload
 
 
 subroutine elementalmatrices()
@@ -457,12 +466,14 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs, reltol)
 
   ! local variables
   real(8) :: lambda, theta, internal, tol
-  integer :: cnt
+  integer :: cnt, n
+  
+  n = size(a)
 
   res         = rglob - csr_mult(rows, a, BCs)
 
   internal = 0.0
-  do i = 1, size(res)
+  do i = 1, n
     internal = internal + abs(res(i))
   end do
   
@@ -479,7 +490,7 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs, reltol)
   res         = rglob - csr_mult(rows, a, BCs)
   convergence = 0.0
  
-  do i = 1, size(res)
+  do i = 1, n
     convergence = convergence + abs(res(i))
   end do
 
@@ -492,7 +503,7 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs, reltol)
     res         = rglob - csr_mult(rows, a, BCs)
     convergence = 0.0
     
-    do i = 1, size(res)
+    do i = 1, n
       convergence = convergence + abs(res(i))
     end do
     
@@ -504,11 +515,12 @@ end subroutine conjugategradient
 real function dotprod(vec1, vec2)
   implicit none
   real(8)  :: vec1(:), vec2(:)
-  integer  :: i
+  integer  :: i, n
   
+  n = size(vec1)
   dotprod = 0.0  
 
-  do i = 1, size(vec1)
+  do i = 1, n
     dotprod = dotprod + vec1(i) * vec2(i)
   end do
 end function dotprod
