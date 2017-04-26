@@ -10,8 +10,11 @@
 
 PROGRAM main
 
-! must precede any implicit statements
+! define the quadrature rule
 use quadrature, only: set=>quadset, definequadset, dealloc_quad
+
+! define the elemental matrices
+use element_matrices, only: shapefunction, define_shapefunctions
 
 implicit none
 
@@ -19,6 +22,7 @@ include 'mpif.h'
 
 ! module-defined derived types
 type(set) :: quadset ! quadrature set (n_qp, qp, wt)
+type(shapefunction) :: phi ! shape functions (phi, dphi)
 
 ! variables for overall execution
 integer  :: AllocateStatus     ! variable to hold memory allocation success
@@ -44,11 +48,9 @@ integer, dimension(2)                 :: BCs            ! BC nodes
 real(8), dimension(2, 2)              :: kel            ! element stiffness mat
 real(8), dimension(2)                 :: rel            ! elemental load vector
 real(8), dimension(:),    allocatable :: soln           ! global soln vector
-!real(8), dimension(2)                 :: qp             ! quadrature points
-!real(8), dimension(2)                 :: wt             ! quadrature weights
 real(8), dimension(:),    allocatable :: x              ! node coordinates
-real(8), dimension(:, :), allocatable :: phi            ! shape functions
-real(8), dimension(:, :), allocatable :: dphi           ! shape function deriv
+!real(8), dimension(:, :), allocatable :: phi            ! shape functions
+!real(8), dimension(:, :), allocatable :: dphi           ! shape function deriv
 integer, dimension(:, :), allocatable :: LM             ! location matrix
 
 ! variables to define the CG solver
@@ -125,16 +127,15 @@ call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
 call initialize(h, x, n_el, n_nodes)              ! initialize problem vars
 
 quadset = definequadset(n_qp)
+phi = define_shapefunctions(quadset)
+
+!call phi_val(quadset)
 
 
-
-
-call phi_val(quadset%qp)
+!call phi_val(quadset%qp)
 !call phi_val(qp)                                  ! initialize shape funcs
-rel = elementalload(quadset%wt, phi, source, h) 
-!rel = elementalload(wt, phi, source, h) 
-!kel = elementalstiffness(wt, dphi, k)
-kel = elementalstiffness(quadset%wt, dphi, k)
+rel = elementalload(quadset%wt, phi%phi, source, h) 
+kel = elementalstiffness(quadset%wt, phi%dphi, k)
 
 n_nodes_global = n_nodes
 n_el_global    = n_el
@@ -303,7 +304,7 @@ if (rank == 0) deallocate(soln)
 
 call mpi_finalize(ierr)
 
-deallocate(x, phi, dphi)
+deallocate(x, phi%phi, phi%dphi)
 call dealloc_quad(quadset)
 ! ------------------------------------------------------------------------------
 
@@ -651,20 +652,20 @@ subroutine locationmatrix(LM, LMcount, n_el)
   end do
 end subroutine locationmatrix
 
-subroutine phi_val(qp)
-  implicit none
-  real(8), intent(in)  :: qp(:)
-
-  allocate(phi(2, size(qp)), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
-  allocate(dphi(2, size(qp)), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of dphi array failed."
-
-  phi(1, :)  = (1.0 - qp(:)) / 2.0
-  phi(2, :)  = (1.0 + qp(:)) / 2.0
-  dphi(1, :) = -1.0 / 2.0
-  dphi(2, :) =  1.0 / 2.0
-end subroutine phi_val
+!subroutine phi_val(qp)
+!  implicit none
+!  real(8), intent(in)  :: qp(:)
+!
+!  allocate(phi(2, size(qp)), stat = AllocateStatus)
+!  if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
+!  allocate(dphi(2, size(qp)), stat = AllocateStatus)
+!  if (AllocateStatus /= 0) STOP "Allocation of dphi array failed."
+!
+!  phi(1, :)  = (1.0 - qp(:)) / 2.0
+!  phi(2, :)  = (1.0 + qp(:)) / 2.0
+!  dphi(1, :) = -1.0 / 2.0
+!  dphi(2, :) =  1.0 / 2.0
+!end subroutine phi_val
 
 
 subroutine quadrature2(qp, wt, n_qp)
