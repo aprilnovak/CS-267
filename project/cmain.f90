@@ -11,12 +11,14 @@
 PROGRAM main
 
 ! must precede any implicit statements
-!use matrices, only : hello
+use quadrature, only: set=>quadset, definequadset
 
 implicit none
 
 include 'mpif.h'
 
+! module-defined derived types
+type(set) :: quadset
 
 ! variables for overall execution
 integer  :: AllocateStatus     ! variable to hold memory allocation success
@@ -42,8 +44,8 @@ integer, dimension(2)                 :: BCs            ! BC nodes
 real(8), dimension(2, 2)              :: kel            ! element stiffness mat
 real(8), dimension(2)                 :: rel            ! elemental load vector
 real(8), dimension(:),    allocatable :: soln           ! global soln vector
-real(8), dimension(2)                 :: qp             ! quadrature points
-real(8), dimension(2)                 :: wt             ! quadrature weights
+!real(8), dimension(2)                 :: qp             ! quadrature points
+!real(8), dimension(2)                 :: wt             ! quadrature weights
 real(8), dimension(:),    allocatable :: x              ! node coordinates
 real(8), dimension(:, :), allocatable :: phi            ! shape functions
 real(8), dimension(:, :), allocatable :: dphi           ! shape function deriv
@@ -121,10 +123,20 @@ call cpu_time(start)
 ! instead of having one process compute these and then broadcast
 call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
 call initialize(h, x, n_el, n_nodes)              ! initialize problem vars
-call quadrature(qp, wt, n_qp)                     ! initialize quadrature
-call phi_val(qp)                                  ! initialize shape funcs
-rel = elementalload(wt, phi, source, h) 
-kel = elementalstiffness(wt, dphi, k)
+
+quadset = definequadset(n_qp)
+!call quadrature2(qp, wt, n_qp)                     ! initialize quadrature
+
+print *, quadset%wt
+
+
+
+call phi_val(quadset%qp)
+!call phi_val(qp)                                  ! initialize shape funcs
+rel = elementalload(quadset%wt, phi, source, h) 
+!rel = elementalload(wt, phi, source, h) 
+!kel = elementalstiffness(wt, dphi, k)
+kel = elementalstiffness(quadset%wt, dphi, k)
 
 n_nodes_global = n_nodes
 n_el_global    = n_el
@@ -657,7 +669,7 @@ subroutine phi_val(qp)
 end subroutine phi_val
 
 
-subroutine quadrature(qp, wt, n_qp)
+subroutine quadrature2(qp, wt, n_qp)
   implicit none
   real(8), intent(inout) :: qp(:), wt(:)
   integer, intent(in)    :: n_qp
@@ -668,7 +680,7 @@ subroutine quadrature(qp, wt, n_qp)
   else
     print *, 'error in quadrature rule selection.'
   end if
-end subroutine quadrature
+end subroutine quadrature2
 
 
 subroutine commandline(n_el, length, leftBC, rightBC)
