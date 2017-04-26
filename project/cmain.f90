@@ -116,8 +116,9 @@ call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
 call initialize(h, x, n_el, n_nodes)              ! initialize problem vars
 call quadrature(qp, wt, n_qp)                     ! initialize quadrature
 call phi_val(qp)                                  ! initialize shape funcs
-kel = elementalstiffness(n_nodes, wt, phi, dphi, k)
-call elementalmatrices()                          ! form elemental mats & vecs
+rel = elementalload(wt, phi, source, h) 
+kel = elementalstiffness(wt, dphi, k)
+!call elementalmatrices()                          ! form elemental mats & vecs
 
 n_nodes_global = n_nodes
 n_el_global    = n_el
@@ -443,12 +444,11 @@ function globalload(LM, rel, n_el, n_nodes)
 end function globalload
 
 
-function elementalstiffness(n_nodes, wt, phi, dphi, k) result(kelem)
+function elementalstiffness(wt, dphi, k) result(kelem)
   implicit none
-  integer, intent(in) :: n_nodes
   real(8), intent(in) :: k
   real(8), intent(in) :: wt(:)
-  real(8), intent(in) :: phi(:, :), dphi(:, :)
+  real(8), intent(in) :: dphi(:, :)
   
   real(8) :: kelem(2, 2)
   integer :: q, i, n
@@ -464,6 +464,25 @@ function elementalstiffness(n_nodes, wt, phi, dphi, k) result(kelem)
   end do
 end function elementalstiffness
 
+
+function elementalload(wt, phi, source, h) result(relem)
+  implicit none
+  real(8), intent(in) :: source, h
+  real(8), intent(in) :: wt(:)
+  real(8), intent(in) :: phi(:, :)
+  
+  real(8) :: relem(2)
+  integer :: q, i, n
+
+  n = size(wt)
+
+  relem = 0.0
+  do q = 1, n
+    do i = 1, 2
+      relem(i) = relem(i) + wt(q) * source * phi(i, q) * h * h / 2.0
+    end do
+  end do
+end function elementalload
 
 subroutine elementalmatrices()
   implicit none
