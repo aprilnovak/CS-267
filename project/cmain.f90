@@ -172,7 +172,7 @@ if (rank == 0) then
   m = (rightBC - leftBC) / length
   acoarse = m * (xcoarse - xcoarse(1)) + BCvals(1)
 
-  call conjugategradient(rowscoarse, acoarse, rglobcoarse, zcoarse, rescoarse, BCs)
+  call conjugategradient(rowscoarse, acoarse, rglobcoarse, zcoarse, rescoarse, BCs, kel, LMcoarse)
   
   ! insert first-guess BCs into BCcoarse array, then broadcast to all processes
   BCcoarse(1, 1) = acoarse(1)
@@ -217,7 +217,7 @@ do while (itererror > ddtol)
   rglob(BCs(1)) = BCvals(1)
   rglob(BCs(2)) = BCvals(2)   
   
-  call conjugategradient(rows, a, rglob, z, res, BCs)
+  call conjugategradient(rows, a, rglob, z, res, BCs, kel, LM)
   
   ! each processor sends a boundary value to the processor to the right -------
   if (rank /= numprocs - 1) then
@@ -367,8 +367,10 @@ subroutine csr(rows, kel, LM, LMcount, n_nodes, n_el)
   ! The formula used to determine how many contributions are made in a row
   ! would need to be redetermined for higher-dimensional meshes. 
   do i = 1, n_nodes
-    allocate(rows(i)%values(2 * LMcount(i) - 2))
-    allocate(rows(i)%columns(2 * LMcount(i) - 2))
+    allocate(rows(i)%values(2 * LMcount(i) - 2), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of values array failed."
+    allocate(rows(i)%columns(2 * LMcount(i) - 2), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of columns array failed."
   end do
   
   ! populate vectors of values and the columns they belong in
@@ -444,21 +446,33 @@ subroutine elementalmatrices()
 end subroutine elementalmatrices
 
 
-subroutine conjugategradient(rows, a, rglob, z, res, BCs)
+subroutine conjugategradient(rows, a, rglob, z, res, BCs, kel, LM)
   implicit none
   real(8), intent(inout) :: a(:)         ! resultant vector
   real(8), intent(inout) :: z(:), res(:) ! CG vectors
   real(8), intent(in)    :: rglob(:)     ! rhs vector
   integer, intent(in)    :: BCs(:)       ! BC nodes 
   type(row), intent(in)  :: rows(:)      ! kglob in CSR form
-  
+  real(8), intent(in)    :: kel(:, :)
+  integer, intent(in)    :: LM(:, :)  
+
   ! local variables
-  real(8) :: lambda, theta
+  real(8) :: lambda, theta, internal
   integer :: cnt
 
   res         = rglob - csr_mult(rows, a, BCs)
+
+  internal = 0.0
+  do i = 1, size(res)
+    internal = internal + abs(res(i))
+  end do
+  
+  ! set better estimate for convergence tolerance:
+  tol = 0.001 * internal  
+
+
   z           = res
-  lambda      = dotprod(z, res)/csr_mult_dot(rows, z, BCs, z)
+  lambda      = dotprod(z, res) / csr_mult_dot(rows, z, BCs, z)
   a           = a + lambda * z
   res         = rglob - csr_mult(rows, a, BCs)
   convergence = 0.0
@@ -466,7 +480,7 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs)
   do i = 1, size(res)
     convergence = convergence + abs(res(i))
   end do
-  
+
   cnt = 0
   do while (convergence > tol)
     theta       = csr_mult_dot(rows, z, BCs, res) / csr_mult_dot(rows, z, BCs, z)
@@ -498,6 +512,36 @@ real function dotprod(vec1, vec2)
   end do
   !!$omp end parallel do
 end function dotprod
+
+
+function sparse_mult(matrix, LM, vector, BCs)
+  implicit none
+  real(8) :: matrix(:, :) ! elementary matrix (assumed-shape array)
+  real(8) :: vector(:)    ! full vector (assumed-shape array)
+  integer :: LM(:, :)     ! location matrix
+  integer :: BCs(:)
+
+  ! return value of function, as an automatic array
+  real(8) :: sparse_mult(size(vector))
+
+  integer :: i, j, q ! looping variables
+  sparse_mult = 0.0
+
+  do q = 1, n_el ! loop over the elements
+    do i = 1, 2 ! loop over all entries in kel
+      if (any(BCs == LM(i, q))) then
+          ! diagonal terms set to 1.0, off-diagonal set to 0.0
+          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
+                                  kronecker(LM(i, q), LM(1, q)) * vector(LM(1, q)) + &
+                                  kronecker(LM(i, q), LM(2, q)) * vector(LM(2, q))
+      else
+          sparse_mult(LM(i, q)) = sparse_mult(LM(i, q)) + &
+                                  matrix(i, 1) * vector(LM(1, q)) + &
+                                  matrix(i, 2) * vector(LM(2, q))
+      end if
+    end do
+  end do
+end function sparse_mult
 
 
 function csr_mult_dot(rows, a, BCs, vector)
@@ -669,5 +713,11 @@ subroutine initialize(h, x, n_el, n_nodes)
   !!$omp end parallel do
 end subroutine initialize
 
+
+integer function kronecker(i, j)
+  implicit none
+  integer :: i, j
+  kronecker = int((float((i + j) - abs(i - j))) / (float((i + j) + abs(i - j))))
+end function kronecker
 
 END PROGRAM main
