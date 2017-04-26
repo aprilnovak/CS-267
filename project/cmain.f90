@@ -20,9 +20,6 @@ implicit none
 
 include 'mpif.h'
 
-! module-defined derived types
-!type(set) :: quadset ! quadrature set (n_qp, qp, wt)
-!type(shapefunction) :: phi ! shape functions (phi, dphi)
 
 ! variables for overall execution
 integer  :: AllocateStatus     ! variable to hold memory allocation success
@@ -45,12 +42,8 @@ real(8)                               :: source         ! uniform heat source
 real(8)                               :: leftBC         ! left Dirichlet BC
 real(8)                               :: rightBC        ! right Dirichlet BC
 integer, dimension(2)                 :: BCs            ! BC nodes
-!real(8), dimension(2, 2)              :: kel            ! element stiffness mat
-!real(8), dimension(2)                 :: rel            ! elemental load vector
 real(8), dimension(:),    allocatable :: soln           ! global soln vector
 real(8), dimension(:),    allocatable :: x              ! node coordinates
-!real(8), dimension(:, :), allocatable :: phi            ! shape functions
-!real(8), dimension(:, :), allocatable :: dphi           ! shape function deriv
 integer, dimension(:, :), allocatable :: LM             ! location matrix
 
 ! variables to define the CG solver
@@ -118,7 +111,6 @@ read(20, FEM)
 close(20)
 
 
-!call hello()
 call cpu_time(start)
 
 ! initialize variables that are known to all MPI processes
@@ -130,13 +122,6 @@ call define_quadset(n_qp)
 call define_shapefunctions()
 call elementalload(source, h)
 call elementalstiffness(k)
-!call phi_val(quadset)
-
-
-!call phi_val(quadset%qp)
-!call phi_val(qp)                                  ! initialize shape funcs
-!rel = elementalload(set%wt, func%phi, source, h) 
-!kel = elementalstiffness(set%wt, func%dphi, k)
 
 n_nodes_global = n_nodes
 n_el_global    = n_el
@@ -460,45 +445,6 @@ function globalload(LM, rel, n_el, n_nodes)
 end function globalload
 
 
-!function elementalstiffness(wt, dphi, k) result(kelem)
-!  implicit none
-!  real(8), intent(in) :: k
-!  real(8), intent(in) :: wt(:)
-!  real(8), intent(in) :: dphi(:, :)
-!  real(8)             :: kelem(2, 2)
-!  integer             :: q, i, n
-!
-!  n     = size(wt)
-!  kelem = 0.0
-!
-!  do q = 1, n
-!    do i = 1, 2
-!      kelem(i, 1) = kelem(i, 1) + wt(q) * dphi(i, q) * k * dphi(1, q) * 2.0
-!      kelem(i, 2) = kelem(i, 2) + wt(q) * dphi(i, q) * k * dphi(2, q) * 2.0
-!    end do
-!  end do
-!end function elementalstiffness
-
-
-!function elementalload(wt, phi, source, h) result(relem)
-!  implicit none
-!  real(8), intent(in) :: source, h
-!  real(8), intent(in) :: wt(:)
-!  real(8), intent(in) :: phi(:, :)
-!  real(8)             :: relem(2)
-!  integer             :: q, i, n
-!
-!  n     = size(wt)
-!  relem = 0.0
-!
-!  do q = 1, n
-!    do i = 1, 2
-!      relem(i) = relem(i) + wt(q) * source * phi(i, q) * h * h / 2.0
-!    end do
-!  end do
-!end function elementalload
-
-
 subroutine conjugategradient(rows, a, rglob, z, res, BCs, reltol)
   implicit none
   real(8), intent(inout) :: a(:)          ! resultant vector
@@ -653,35 +599,6 @@ subroutine locationmatrix(LM, LMcount, n_el)
     LMcount(LM(2, j)) = LMcount(LM(2, j)) + 1
   end do
 end subroutine locationmatrix
-
-!subroutine phi_val(qp)
-!  implicit none
-!  real(8), intent(in)  :: qp(:)
-!
-!  allocate(phi(2, size(qp)), stat = AllocateStatus)
-!  if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
-!  allocate(dphi(2, size(qp)), stat = AllocateStatus)
-!  if (AllocateStatus /= 0) STOP "Allocation of dphi array failed."
-!
-!  phi(1, :)  = (1.0 - qp(:)) / 2.0
-!  phi(2, :)  = (1.0 + qp(:)) / 2.0
-!  dphi(1, :) = -1.0 / 2.0
-!  dphi(2, :) =  1.0 / 2.0
-!end subroutine phi_val
-
-
-!subroutine quadrature2(qp, wt, n_qp)
-!  implicit none
-!  real(8), intent(inout) :: qp(:), wt(:)
-!  integer, intent(in)    :: n_qp
-! 
-!  if (n_qp == 2) then 
-!    qp   = (/ -1.0/sqrt(3.0), 1.0/sqrt(3.0) /)
-!    wt   = (/ 1.0, 1.0 /)
-!  else
-!    print *, 'error in quadrature rule selection.'
-!  end if
-!end subroutine quadrature2
 
 
 subroutine commandline(n_el, length, leftBC, rightBC)
