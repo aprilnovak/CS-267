@@ -508,11 +508,9 @@ real function dotprod(vec1, vec2)
   
   dotprod = 0.0  
 
-  !!$omp parallel do default(shared) private(i) reduction(+:dotprod)
   do i = 1, size(vec1)
     dotprod = dotprod + vec1(i) * vec2(i)
   end do
-  !!$omp end parallel do
 end function dotprod
 
 
@@ -586,22 +584,18 @@ subroutine locationmatrix(LM, LMcount, n_el)
   integer, intent(in)    :: n_el
   integer                :: j
   
-  !!$omp parallel do default(private) shared(n_el, LM) private(j)
-  do j = 1, n_el
-    LM(:, j) = (/ j, j + 1 /)
-  end do
-  !!$omp end parallel do
-
   ! Determine the number of elements that contain each node (given as a 
   ! vector of length n_nodes). Then, the formula to obtain the number of 
   ! nonzero entries per row is (LMcount - 1 + n_en), so compute the number
   ! of nonzero entries per row in the global stiffness matrix.
-  LMcount = 0
+ 
+  LMcount = 1
+ 
   do j = 1, n_el
+    LM(:, j) = (/ j, j + 1 /)
     LMcount(LM(1, j)) = LMcount(LM(1, j)) + 1
     LMcount(LM(2, j)) = LMcount(LM(2, j)) + 1
   end do
-  LMcount = LMcount + 1
 end subroutine locationmatrix
 
 subroutine phi_val(qp)
