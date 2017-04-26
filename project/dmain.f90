@@ -22,7 +22,6 @@ real(8)  :: startCG            ! start CG time
 real(8)  :: endCG              ! end CG time
 real(8)  :: startCSR           ! start CSR time
 real(8)  :: endCSR             ! end CSR time
-logical  :: savesoln           ! save solution to file
 
 ! variables to define the global problem
 integer                               :: n_el_global    ! global elements
@@ -277,7 +276,6 @@ call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
 
 ! write results to output file ------------------------------------------------
 if (rank == 0) then
-!if ((rank == 0) .and. (savesoln)) then
   soln(n_nodes_global) = rightBC 
   ! write to an output file. If this file exists, it will be re-written.
   open(1, file='output.txt', iostat=AllocateStatus, status="replace")
