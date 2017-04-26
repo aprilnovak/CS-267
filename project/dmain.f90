@@ -231,26 +231,33 @@ do while (itererror > ddtol)
   
   ! each processor sends a boundary value to the processor to the right -------
   if (rank /= numprocs - 1) then
-    call mpi_send(a(n_nodes - 1), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
+   !print *, 'rank: ', rank, 'sending to the right' 
+   call mpi_send(a(n_nodes - 1), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
   end if
 
   ! processor to the right receives the message -------------------------------
   if (rank /= 0) then
+    !print *, 'rank: ', rank, 'receiving from the left' 
     call mpi_recv(BClocals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
     ! assign other local boundary condition
     BClocals(2) = a(2)
   end if
 
+  
+
   ! each processor solves its interface problem -------------------------------
   if (rank /= 0) then
+    !print *, 'rank: ', rank, 'solving interface' 
     BCvals(1) = (rel(2) + rel(1) - kel(2, 1) * BClocals(2) &
                       - kel(1, 2) * BClocals(1)) / (kel(2, 2) + kel(1, 1))
     ! send new interface result to rank - 1 process (to BCvals(2) of rank - 1)
+    !print *, 'rank: ', rank, 'updating to left'
     call mpi_send(BCvals(1), 1, mpi_real8, rank - 1, rank, mpi_comm_world, ierr)
   end if
 
   ! rank - 1 process receives from the process to the right -------------------
   if (rank /= numprocs - 1) then
+   !print *, 'rank: ', rank, 'updating from right'
     call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1, mpi_comm_world, stat, ierr)
   end if
 
@@ -380,16 +387,11 @@ subroutine csr(rows, kel, LM, LMcount, n_nodes, n_el)
   ! The formula used to determine how many contributions are made in a row
   ! would need to be redetermined for higher-dimensional meshes. 
   
-  !$omp  parallel do default(none) shared(n_nodes, rows, LMcount) private(i) 
-  !$omp& schedule(static)
   do i = 1, n_nodes
     allocate(rows(i)%values(2 * LMcount(i) - 2))
     allocate(rows(i)%columns(2 * LMcount(i) - 2))
   end do
-  !$omp end parallel do
   
-  !$omp  parallel do default(none) shared(n_el, rows, LM, kel) private(q, j, i)
-  !$omp& schedule(static)
   do q = 1, n_el
     do j = 1, 2
       do i = 1, 2
@@ -399,7 +401,6 @@ subroutine csr(rows, kel, LM, LMcount, n_nodes, n_el)
       end do
     end do
   end do
-  !$omp end parallel do
 end subroutine csr
 
 
@@ -482,38 +483,22 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs)
   res         = csr_mult_sub(rows, a, BCs, rglob)
   convergence = 0.0
   
-  !$omp parallel do default(none) shared(res, n) private(i) reduction(+:convergence) 
   do i = 1, n
     convergence = convergence + abs(res(i))
   end do
-  !$omp end parallel do
   
   cnt = 0
   do while (convergence > tol)
     theta       = csr_mult_dot(rows, z, BCs, res) / csr_mult_dot(rows, z, BCs, z)
-    
-    !$omp parallel do default(none) shared(n, z, res, theta) private(i) schedule(static)
-    do i = 1, n
-      z(i)      = res(i) - theta * z(i)
-    end do
-    !$omp end parallel do
-
+    z           = res - theta * z
     lambda      = dotprod(z, res) / csr_mult_dot(rows, z, BCs, z)
-    
-    !$omp parallel do default(none) shared(a, lambda, z, n) private(i) schedule(static)
-    do i = 1, n
-      a(i)      = a(i) + lambda * z(i)
-    end do
-    !$omp end parallel do
-
-    res         = csr_mult_sub(rows, a, BCs, res)
+    a           = a + lambda * z
+    res         = csr_mult_sub(rows, a, BCs, rglob)
     convergence = 0.0
   
-    !$omp parallel do default(none) shared(res, n) private(i) reduction(+:convergence) 
     do i = 1, n
       convergence = convergence + abs(res(i))
     end do
-    !$omp end parallel do
     
   cnt = cnt + 1
   end do
@@ -527,11 +512,9 @@ real function dotprod(vec1, vec2)
   
   dotprod = 0.0  
 
-  !!$omp parallel do default(shared) private(i) reduction(+:dotprod)
   do i = 1, size(vec1)
     dotprod = dotprod + vec1(i) * vec2(i)
   end do
-  !!$omp end parallel do
 end function dotprod
 
 
@@ -550,7 +533,6 @@ function csr_mult_dot(rows, a, BCs, vector)
 
   n = size(a)
 
-  !$omp parallel do default(none) shared(rows, a, n, temp) private(accum, i) schedule(static)
   do i = 1, n
     accum = 0.0
     do j = 1, size(rows(i)%columns(:))
@@ -558,7 +540,6 @@ function csr_mult_dot(rows, a, BCs, vector)
     end do  
     temp(i) = accum * vector(i)
   end do
-  !$omp end parallel do
  
   ! apply boundary conditions
   do i = 1, size(BCs)
@@ -566,11 +547,9 @@ function csr_mult_dot(rows, a, BCs, vector)
   end do
 
   csr_mult_dot = 0.0
-  !$omp parallel do default(none) shared(n, temp) private(i) reduction(+:csr_mult_dot)
   do i = 1, n
     csr_mult_dot = csr_mult_dot + temp(i)
   end do
-  !$omp end parallel do
 end function csr_mult_dot
 
 
@@ -587,7 +566,6 @@ function csr_mult(rows, a, BCs)
 
   n = size(a)
 
-  !$omp parallel do default(none) shared(rows, csr_mult, n) private(i, j, accum) 
   do i = 1, n
     accum = 0.0
     do j = 1, size(rows(i)%columns(:))
@@ -595,7 +573,6 @@ function csr_mult(rows, a, BCs)
     end do  
     csr_mult(i) = accum
   end do
-  !$omp end parallel do 
 
   ! apply boundary conditions
   do i = 1, size(BCs)
@@ -618,7 +595,6 @@ function csr_mult_sub(rows, a, BCs, b)
 
   n = size(a)
 
-  !$omp parallel do default(none) shared(rows, csr_mult, n) private(i, j, accum) 
   do i = 1, n
     accum = 0.0
     do j = 1, size(rows(i)%columns(:))
@@ -626,11 +602,10 @@ function csr_mult_sub(rows, a, BCs, b)
     end do  
     csr_mult_sub(i) = b(i) - accum
   end do
-  !$omp end parallel do 
 
   ! apply boundary conditions
   do i = 1, size(BCs)
-    csr_mult_sub(BCs(i)) = b(i) - a(BCs(i))
+    csr_mult_sub(BCs(i)) = b(BCs(i)) - a(BCs(i))
   end do
 end function csr_mult_sub
 
@@ -648,25 +623,19 @@ subroutine locationmatrix(LM, LMcount, n_el)
   ! nonzero entries per row is (LMcount - 1 + n_en), so compute the number
   ! of nonzero entries per row in the global stiffness matrix.
  
-  !$omp parallel do default(none) shared(n_el, LMcount) private(j)
   do j = 1, n_el + 1
     LMcount(j) = 0
   end do
-  !$omp end parallel do  
 
-  !$omp parallel do default(none) shared(n_el, LM) private(j)
   do j = 1, n_el
     LM(:, j) = (/ j, j + 1 /)
     LMcount(LM(1, j)) = LMcount(LM(1, j)) + 1
     LMcount(LM(2, j)) = LMcount(LM(2, j)) + 1
   end do
-  !$omp end parallel do
 
-  !$omp parallel do default(none) shared(n_el, LMcount) private(j)
   do j = 1, n_el + 1
     LMcount(j) = LMcount(j) + 1
   end do
-  !$omp end parallel do
 end subroutine locationmatrix
 
 subroutine phi_val(qp)
@@ -743,11 +712,9 @@ subroutine initialize(h, x, n_el, n_nodes)
   allocate(x(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of x array failed."
 
-  !$omp parallel do default(none) shared(x, h, n_nodes) private(i)
   do i = 1, n_nodes
     x(i) = real(i - 1) * h
   end do
-  !$omp end parallel do
 end subroutine initialize
 
 
