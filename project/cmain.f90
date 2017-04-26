@@ -116,6 +116,7 @@ call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
 call initialize(h, x, n_el, n_nodes)              ! initialize problem vars
 call quadrature(qp, wt, n_qp)                     ! initialize quadrature
 call phi_val(qp)                                  ! initialize shape funcs
+kel = elementalstiffness(n_nodes, wt, phi, dphi, k)
 call elementalmatrices()                          ! form elemental mats & vecs
 
 n_nodes_global = n_nodes
@@ -442,15 +443,37 @@ function globalload(LM, rel, n_el, n_nodes)
 end function globalload
 
 
+function elementalstiffness(n_nodes, wt, phi, dphi, k) result(kelem)
+  implicit none
+  integer, intent(in) :: n_nodes
+  real(8), intent(in) :: k
+  real(8), intent(in) :: wt(:)
+  real(8), intent(in) :: phi(:, :), dphi(:, :)
+  
+  real(8) :: kelem(2, 2)
+  integer :: q, i, n
+
+  n = size(wt)
+
+  kelem = 0.0
+  do q = 1, n
+    do i = 1, 2
+      kelem(i, 1) = kelem(i, 1) + wt(q) * dphi(i, q) * k * dphi(1, q) * 2.0
+      kelem(i, 2) = kelem(i, 2) + wt(q) * dphi(i, q) * k * dphi(2, q) * 2.0
+    end do
+  end do
+end function elementalstiffness
+
+
 subroutine elementalmatrices()
   implicit none
-  kel = 0.0
+ ! kel = 0.0
   rel = 0.0
   do q = 1, n_qp
     do i = 1, 2
       rel(i)    = rel(i) + wt(q) * source * phi(i, q) * h * h / 2.0
-      kel(i, 1) = kel(i, 1) + wt(q) * dphi(i, q) * k * dphi(1, q) * 2.0
-      kel(i, 2) = kel(i, 2) + wt(q) * dphi(i, q) * k * dphi(2, q) * 2.0
+      !kel(i, 1) = kel(i, 1) + wt(q) * dphi(i, q) * k * dphi(1, q) * 2.0
+      !kel(i, 2) = kel(i, 2) + wt(q) * dphi(i, q) * k * dphi(2, q) * 2.0
     end do
   end do
 end subroutine elementalmatrices
