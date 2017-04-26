@@ -166,7 +166,7 @@ if (rank == 0) then
   rglobcoarse(BCs(1)) = BCvals(1)
   rglobcoarse(BCs(2)) = BCvals(2)   
 
-  call csr(rowscoarse, kel, LMcoarse, LMcountcoarse, n_nodes, n_el)
+  call csr(rowscoarse, kel, LMcoarse, LMcountcoarse)
 
   ! initial guess is a straight line between the two endpoints
   m = (rightBC - leftBC) / length
@@ -202,7 +202,7 @@ BCvals(2) = BCcoarse(2, rank + 1)
 
 call locationmatrix(LM, LMcount, n_el)          ! form LM and count entries
 rglob = globalload(LM, rel, n_el, n_nodes)      ! form global load vector
-call csr(rows, kel, LM, LMcount, n_nodes, n_el) ! form CSR storage
+call csr(rows, kel, LM, LMcount)                ! form CSR storage
 
 ! initial guess is a straight line between the two endpoints
 m = (BCvals(2) - BCvals(1)) / (xel(n_nodes) - xel(1))
@@ -352,16 +352,17 @@ subroutine allocatedecomp()
 end subroutine allocatedecomp
 
 
-subroutine csr(rows, kel, LM, LMcount, n_nodes, n_el)
+subroutine csr(rows, kel, LM, LMcount)
   implicit none
   type(row), intent(inout) :: rows(:)
-  real(8), intent(in) :: kel(:, :)
-  integer, intent(in) :: LM(:, :)
-  integer, intent(in) :: LMcount(:)
-  integer, intent(in) :: n_nodes
-  integer, intent(in) :: n_el
+  real(8), intent(in)      :: kel(:, :)
+  integer, intent(in)      :: LM(:, :)
+  integer, intent(in)      :: LMcount(:)
 
-  integer :: i, j, q
+  integer :: i, j, q, n_el, n_nodes
+
+  n_el    = size(LM(1, :))
+  n_nodes = size(rows)
 
   ! allocate space for the elements of the rows data structure
   ! The formula used to determine how many contributions are made in a row
