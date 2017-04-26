@@ -118,7 +118,6 @@ call quadrature(qp, wt, n_qp)                     ! initialize quadrature
 call phi_val(qp)                                  ! initialize shape funcs
 rel = elementalload(wt, phi, source, h) 
 kel = elementalstiffness(wt, dphi, k)
-!call elementalmatrices()                          ! form elemental mats & vecs
 
 n_nodes_global = n_nodes
 n_el_global    = n_el
@@ -449,13 +448,12 @@ function elementalstiffness(wt, dphi, k) result(kelem)
   real(8), intent(in) :: k
   real(8), intent(in) :: wt(:)
   real(8), intent(in) :: dphi(:, :)
-  
-  real(8) :: kelem(2, 2)
-  integer :: q, i, n
+  real(8)             :: kelem(2, 2)
+  integer             :: q, i, n
 
-  n = size(wt)
-
+  n     = size(wt)
   kelem = 0.0
+
   do q = 1, n
     do i = 1, 2
       kelem(i, 1) = kelem(i, 1) + wt(q) * dphi(i, q) * k * dphi(1, q) * 2.0
@@ -470,32 +468,18 @@ function elementalload(wt, phi, source, h) result(relem)
   real(8), intent(in) :: source, h
   real(8), intent(in) :: wt(:)
   real(8), intent(in) :: phi(:, :)
-  
-  real(8) :: relem(2)
-  integer :: q, i, n
+  real(8)             :: relem(2)
+  integer             :: q, i, n
 
-  n = size(wt)
-
+  n     = size(wt)
   relem = 0.0
+
   do q = 1, n
     do i = 1, 2
       relem(i) = relem(i) + wt(q) * source * phi(i, q) * h * h / 2.0
     end do
   end do
 end function elementalload
-
-subroutine elementalmatrices()
-  implicit none
- ! kel = 0.0
-  rel = 0.0
-  do q = 1, n_qp
-    do i = 1, 2
-      rel(i)    = rel(i) + wt(q) * source * phi(i, q) * h * h / 2.0
-      !kel(i, 1) = kel(i, 1) + wt(q) * dphi(i, q) * k * dphi(1, q) * 2.0
-      !kel(i, 2) = kel(i, 2) + wt(q) * dphi(i, q) * k * dphi(2, q) * 2.0
-    end do
-  end do
-end subroutine elementalmatrices
 
 
 subroutine conjugategradient(rows, a, rglob, z, res, BCs, reltol)
