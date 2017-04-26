@@ -11,14 +11,14 @@
 PROGRAM main
 
 ! must precede any implicit statements
-use quadrature, only: set=>quadset, definequadset
+use quadrature, only: set=>quadset, definequadset, dealloc_quad
 
 implicit none
 
 include 'mpif.h'
 
 ! module-defined derived types
-type(set) :: quadset
+type(set) :: quadset ! quadrature set (n_qp, qp, wt)
 
 ! variables for overall execution
 integer  :: AllocateStatus     ! variable to hold memory allocation success
@@ -127,7 +127,6 @@ call initialize(h, x, n_el, n_nodes)              ! initialize problem vars
 quadset = definequadset(n_qp)
 !call quadrature2(qp, wt, n_qp)                     ! initialize quadrature
 
-print *, quadset%wt
 
 
 
@@ -306,7 +305,7 @@ if (rank == 0) deallocate(soln)
 call mpi_finalize(ierr)
 
 deallocate(x, phi, dphi)
-
+call dealloc_quad(quadset)
 ! ------------------------------------------------------------------------------
 
 
