@@ -14,11 +14,14 @@ type quadset
   integer              :: n_qp
 end type quadset
 
+! declare the quadrature set, which should be global to all programs
+! using the quadrature module
+type(quadset), save :: set
+
 contains ! define module procedures (methods that operate on the quadset class)
 
 
-function definequadset(n) result(set)
-  type(quadset)       :: set
+subroutine define_quadset(n)
   integer, intent(in) :: n
 
   allocate(set%wt(n), stat = AllocateStatus)
@@ -34,12 +37,11 @@ function definequadset(n) result(set)
   else
     print *, 'error in quadrature rule selection.'
   end if
-end function definequadset
+end subroutine define_quadset
 
 
-subroutine dealloc_quad(set)
-  type(quadset) :: set
+subroutine dealloc_quadset()
   deallocate(set%wt, set%qp)
-end subroutine dealloc_quad
+end subroutine dealloc_quadset
 
 end module quadrature
