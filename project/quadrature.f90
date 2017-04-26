@@ -18,8 +18,7 @@ end type quadset
 ! using the quadrature module
 type(quadset), save :: set
 
-contains ! define module procedures (methods that operate on the quadset class)
-
+contains
 
 subroutine define_quadset(n)
   integer, intent(in) :: n

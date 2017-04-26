@@ -15,10 +15,12 @@ real(8), save :: rel(2)
 ! elemental stiffness matrix, global variable
 real(8), save :: kel(2, 2)
 
-! shape functions, global variable
-type(shapefunction), save :: func
-
-integer, private          :: AllocateStatus
+! shape functions, private variable (only needed within this module).
+! You can declare a variable as private, but still use the module
+! procedures that directly reference that variable, you just can't 
+! _directly_ modify that private variable
+type(shapefunction), private :: func
+integer, private             :: AllocateStatus
 
 contains
 
