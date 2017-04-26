@@ -125,7 +125,6 @@ call commandline(n_el, length, leftBC, rightBC)   ! parse command line args
 call initialize(h, x, n_el, n_nodes)              ! initialize problem vars
 
 quadset = definequadset(n_qp)
-!call quadrature2(qp, wt, n_qp)                     ! initialize quadrature
 
 
 

@@ -14,9 +14,8 @@ type quadset
   integer              :: n_qp
 end type quadset
 
-! executable statements
-
 contains ! define module procedures (methods that operate on the quadset class)
+
 
 function definequadset(n) result(set)
   type(quadset)       :: set
@@ -37,9 +36,9 @@ function definequadset(n) result(set)
   end if
 end function definequadset
 
+
 subroutine dealloc_quad(set)
   type(quadset) :: set
-
   deallocate(set%wt, set%qp)
 end subroutine dealloc_quad
 
