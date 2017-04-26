@@ -20,9 +20,12 @@ function form_csr(LM, LMcount, n_nodes) result(rows)
   integer, intent(in)      :: LMcount(:)
   integer, intent(in)      :: n_nodes
  
-  type(row) :: rows(n_nodes)
+  type(row), allocatable :: rows(:)
   integer   :: i, j, q, n_el
  
+  allocate(rows(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
+
   n_el    = size(LM(1, :))
  
   ! allocate space for the elements of the rows data structure

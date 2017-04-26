@@ -16,6 +16,9 @@ use quadrature
 ! define the elemental matrices
 use element_matrices
 
+! define the CSR matrix storage
+use csr_storage
+
 implicit none
 
 include 'mpif.h'
@@ -95,11 +98,11 @@ integer :: provided   ! holds provided level of thread support
 integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
 ! variables to implement CSR matrix storage
-type row
-  real(8), allocatable, dimension(:) :: values     ! values in each row
-  integer, allocatable, dimension(:) :: columns    ! nonzero col nums per row
-  integer                            :: entri = 1  ! entry next to be filled    
-end type row
+!type row
+!  real(8), allocatable, dimension(:) :: values     ! values in each row
+!  integer, allocatable, dimension(:) :: columns    ! nonzero col nums per row
+!  integer                            :: entri = 1  ! entry next to be filled    
+!end type row
 
 type(row), allocatable, dimension(:) :: rows       ! rows in global K
 type(row), allocatable, dimension(:) :: rowscoarse ! rows in coarse global K
@@ -171,7 +174,8 @@ if (rank == 0) then
   rglobcoarse(BCs(1)) = BCvals(1)
   rglobcoarse(BCs(2)) = BCvals(2)   
 
-  call csr(rowscoarse, kel, LMcoarse, LMcountcoarse)
+  rowscoarse = form_csr(LMcoarse, LMcountcoarse, n_nodes)
+  !call csr(rowscoarse, kel, LMcoarse, LMcountcoarse)
 
   ! initial guess is a straight line between the two endpoints
   m = (rightBC - leftBC) / length
@@ -316,8 +320,8 @@ subroutine allocatecoarse()
   if (AllocateStatus /= 0) STOP "Allocation of rescoarse array failed."
   allocate(LMcountcoarse(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of LMcountcoarse array failed."
-  allocate(rowscoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rowscoarse array failed."
+!  allocate(rowscoarse(n_nodes), stat = AllocateStatus)
+!  if (AllocateStatus /= 0) STOP "Allocation of rowscoarse array failed."
 end subroutine allocatecoarse
 
 
