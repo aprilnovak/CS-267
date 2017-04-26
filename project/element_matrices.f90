@@ -11,6 +11,10 @@ end type shapefunction
 
 ! elemental load vector, global variable
 real(8), save :: rel(2)
+
+! elemental stiffness matrix, global variable
+real(8), save :: kel(2, 2)
+
 ! shape functions, global variable
 type(shapefunction), save :: func
 
@@ -44,6 +48,21 @@ subroutine elementalload(source, h)
     end do
   end do
 end subroutine elementalload
+
+
+subroutine elementalstiffness(k)
+! assemble the elemental stiffness matrix  
+  real(8), intent(in) :: k
+  integer             :: q, i
+
+  kel = 0.0
+  do q = 1, set%n_qp
+    do i = 1, 2
+      kel(i, 1) = kel(i, 1) + set%wt(q) * func%dphi(i, q) * k * func%dphi(1, q) * 2.0
+      kel(i, 2) = kel(i, 2) + set%wt(q) * func%dphi(i, q) * k * func%dphi(2, q) * 2.0
+    end do
+  end do
+end subroutine elementalstiffness
 
 
 subroutine dealloc_shapefunctions()

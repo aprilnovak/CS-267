@@ -45,7 +45,7 @@ real(8)                               :: source         ! uniform heat source
 real(8)                               :: leftBC         ! left Dirichlet BC
 real(8)                               :: rightBC        ! right Dirichlet BC
 integer, dimension(2)                 :: BCs            ! BC nodes
-real(8), dimension(2, 2)              :: kel            ! element stiffness mat
+!real(8), dimension(2, 2)              :: kel            ! element stiffness mat
 !real(8), dimension(2)                 :: rel            ! elemental load vector
 real(8), dimension(:),    allocatable :: soln           ! global soln vector
 real(8), dimension(:),    allocatable :: x              ! node coordinates
@@ -129,14 +129,14 @@ call initialize(h, x, n_el, n_nodes)              ! initialize problem vars
 call define_quadset(n_qp)
 call define_shapefunctions()
 call elementalload(source, h)
-
+call elementalstiffness(k)
 !call phi_val(quadset)
 
 
 !call phi_val(quadset%qp)
 !call phi_val(qp)                                  ! initialize shape funcs
 !rel = elementalload(set%wt, func%phi, source, h) 
-kel = elementalstiffness(set%wt, func%dphi, k)
+!kel = elementalstiffness(set%wt, func%dphi, k)
 
 n_nodes_global = n_nodes
 n_el_global    = n_el
@@ -460,24 +460,24 @@ function globalload(LM, rel, n_el, n_nodes)
 end function globalload
 
 
-function elementalstiffness(wt, dphi, k) result(kelem)
-  implicit none
-  real(8), intent(in) :: k
-  real(8), intent(in) :: wt(:)
-  real(8), intent(in) :: dphi(:, :)
-  real(8)             :: kelem(2, 2)
-  integer             :: q, i, n
-
-  n     = size(wt)
-  kelem = 0.0
-
-  do q = 1, n
-    do i = 1, 2
-      kelem(i, 1) = kelem(i, 1) + wt(q) * dphi(i, q) * k * dphi(1, q) * 2.0
-      kelem(i, 2) = kelem(i, 2) + wt(q) * dphi(i, q) * k * dphi(2, q) * 2.0
-    end do
-  end do
-end function elementalstiffness
+!function elementalstiffness(wt, dphi, k) result(kelem)
+!  implicit none
+!  real(8), intent(in) :: k
+!  real(8), intent(in) :: wt(:)
+!  real(8), intent(in) :: dphi(:, :)
+!  real(8)             :: kelem(2, 2)
+!  integer             :: q, i, n
+!
+!  n     = size(wt)
+!  kelem = 0.0
+!
+!  do q = 1, n
+!    do i = 1, 2
+!      kelem(i, 1) = kelem(i, 1) + wt(q) * dphi(i, q) * k * dphi(1, q) * 2.0
+!      kelem(i, 2) = kelem(i, 2) + wt(q) * dphi(i, q) * k * dphi(2, q) * 2.0
+!    end do
+!  end do
+!end function elementalstiffness
 
 
 !function elementalload(wt, phi, source, h) result(relem)
