@@ -1,27 +1,20 @@
 module quadrature
 
-! specification statements
-! a module may use another module, but not itself
 implicit none
 
-integer, private :: AllocateStatus
-
-! save statement means that these are visible to all program units that
-! use this module
 type quadset
   real(8), allocatable :: wt(:)
   real(8), allocatable :: qp(:)
   integer              :: n_qp
 end type quadset
 
-! declare the quadrature set, which should be global to all programs
-! using the quadrature module
-type(quadset), save :: set
+type(quadset), save :: set         ! quadrature set
+integer, private :: AllocateStatus ! allocation check
 
 contains
 
-subroutine define_quadset(n)
-  integer, intent(in) :: n
+subroutine define_quadset()
+  use read_data, only: n=>n_qp     ! number of quadrature points
 
   allocate(set%wt(n), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of set%wt array failed."

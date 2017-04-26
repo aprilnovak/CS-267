@@ -42,10 +42,7 @@ real(8)  :: endCSR             ! end CSR time
 
 ! variables to define the global problem
 integer                               :: n_nodes_global ! global nodes
-!integer                               :: n_qp           ! number of quad points
 real(8)                               :: h              ! length of one element
-!real(8)                               :: k              ! thermal conductivity
-!real(8)                               :: source         ! uniform heat source
 integer, dimension(2)                 :: BCs            ! BC nodes
 real(8), dimension(:),    allocatable :: soln           ! global soln vector
 real(8), dimension(:),    allocatable :: x              ! node coordinates
@@ -54,7 +51,6 @@ integer, dimension(:, :), allocatable :: LM             ! location matrix
 ! variables to define the CG solver
 integer                            :: cnt         ! number of CG iterations
 real(8)                            :: convergence ! difference b/w CG iterations
-!real(8)                            :: reltol      ! CG relative tolerance
 real(8)                            :: m           ! slope of line
 real(8), dimension(:), allocatable :: z           ! CG update iterates
 real(8), dimension(:), allocatable :: res         ! solution residual
@@ -67,7 +63,6 @@ integer                               :: maxperproc  ! max elems per processor
 integer                               :: rank        ! processor rank
 integer                               :: ddcnt       ! DD counter
 real(8)                               :: itererror   ! whole-loop iter error
-!real(8)                               :: ddtol       ! DD loop tolerance
 integer                               :: ierr        ! error for MPI calls
 integer, dimension(:, :), allocatable :: edges       ! nodes on edge of domain
 integer, dimension(:),    allocatable :: recv_displs ! displacement of domain
@@ -116,7 +111,7 @@ call read_commandline()
 
 call initialize(h, x, n_el_global, n_nodes)              ! initialize problem vars
 
-call define_quadset(n_qp)
+call define_quadset()
 call define_shapefunctions()
 call elementalload(source, h)
 call elementalstiffness(k)
