@@ -216,7 +216,7 @@ do while (itererror > ddtol)
   ! each processor solves for its domain --------------------------------------
   rglob(BCs(1)) = BCvals(1)
   rglob(BCs(2)) = BCvals(2)   
- 
+  
   call conjugategradient(rows, a, rglob, z, res, BCs)
   
   ! each processor sends a boundary value to the processor to the right -------
@@ -230,6 +230,8 @@ do while (itererror > ddtol)
     ! assign other local boundary condition
     BClocals(2) = a(2)
   end if
+
+  call mpi_barrier(mpi_comm_world, ierr)
 
   ! each processor solves its interface problem -------------------------------
   if (rank /= 0) then
