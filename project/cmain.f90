@@ -97,13 +97,6 @@ integer :: mythread   ! current thread number
 integer :: provided   ! holds provided level of thread support
 integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
-! variables to implement CSR matrix storage
-!type row
-!  real(8), allocatable, dimension(:) :: values     ! values in each row
-!  integer, allocatable, dimension(:) :: columns    ! nonzero col nums per row
-!  integer                            :: entri = 1  ! entry next to be filled    
-!end type row
-
 type(row), allocatable, dimension(:) :: rows       ! rows in global K
 type(row), allocatable, dimension(:) :: rowscoarse ! rows in coarse global K
 
@@ -175,7 +168,6 @@ if (rank == 0) then
   rglobcoarse(BCs(2)) = BCvals(2)   
 
   rowscoarse = form_csr(LMcoarse, LMcountcoarse, n_nodes)
-  !call csr(rowscoarse, kel, LMcoarse, LMcountcoarse)
 
   ! initial guess is a straight line between the two endpoints
   m = (rightBC - leftBC) / length
@@ -211,7 +203,7 @@ BCvals(2) = BCcoarse(2, rank + 1)
 
 call locationmatrix(LM, LMcount, n_el)          ! form LM and count entries
 rglob = globalload(LM, rel, n_el, n_nodes)      ! form global load vector
-call csr(rows, kel, LM, LMcount)                ! form CSR storage
+rows = form_csr(LM, LMcount, n_nodes)
 
 ! initial guess is a straight line between the two endpoints
 m = (BCvals(2) - BCvals(1)) / (xel(n_nodes) - xel(1))
@@ -360,41 +352,6 @@ subroutine allocatedecomp()
   allocate(BCcoarse(2, numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of BCcoarse array failed."
 end subroutine allocatedecomp
-
-
-subroutine csr(rows, kel, LM, LMcount)
-  implicit none
-  type(row), intent(inout) :: rows(:)
-  real(8), intent(in)      :: kel(:, :)
-  integer, intent(in)      :: LM(:, :)
-  integer, intent(in)      :: LMcount(:)
-
-  integer :: i, j, q, n_el, n_nodes
-
-  n_el    = size(LM(1, :))
-  n_nodes = size(rows)
-
-  ! allocate space for the elements of the rows data structure
-  ! The formula used to determine how many contributions are made in a row
-  ! would need to be redetermined for higher-dimensional meshes. 
-  do i = 1, n_nodes
-    allocate(rows(i)%values(2 * LMcount(i) - 2), stat = AllocateStatus)
-    if (AllocateStatus /= 0) STOP "Allocation of values array failed."
-    allocate(rows(i)%columns(2 * LMcount(i) - 2), stat = AllocateStatus)
-    if (AllocateStatus /= 0) STOP "Allocation of columns array failed."
-  end do
-  
-  ! populate vectors of values and the columns they belong in
-  do q = 1, n_el
-    do i = 1, 2
-      do j = 1, 2
-        rows(LM(i, q))%columns(rows(LM(i, q))%entri) = LM(j, q)
-        rows(LM(i, q))%values(rows(LM(i, q))%entri)  = kel(i, j)
-        rows(LM(i, q))%entri = rows(LM(i, q))%entri + 1
-      end do
-    end do
-  end do
-end subroutine csr
 
 
 subroutine initializedecomp()
