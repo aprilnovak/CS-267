@@ -41,16 +41,16 @@ end subroutine define_shapefunctions
 
 subroutine elementalload()
 ! assemble the elemental load vector
-  use quadrature, only: set ! quadrature set
+  use quadrature, only: set   ! quadrature set
   use read_data, only: source ! heat source
-  use mesh, only: h ! element width
+  use mesh, only: global      ! contains global element width
 
   integer             :: q, i
   
   rel = 0.0
   do q = 1, set%n_qp
     do i = 1, 2
-      rel(i) = rel(i) + set%wt(q) * source * func%phi(i, q) * h * h / 2.0
+      rel(i) = rel(i) + set%wt(q) * source * func%phi(i, q) * global%h * global%h / 2.0
     end do
   end do
 end subroutine elementalload

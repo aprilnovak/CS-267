@@ -2,9 +2,7 @@ module read_data
 
 implicit none
 
-integer, save :: n_el_global ! number of global elements
 integer, save :: n_qp        ! number of quadrature points
-real(8), save :: length      ! domain length
 real(8), save :: leftBC      ! left Dirichlet boundary condition
 real(8), save :: rightBC     ! right Dirichlet boundary condition
 real(8), save :: k           ! thermal conductivity
@@ -15,6 +13,7 @@ real(8), save :: ddtol       ! DD convergence tolerance
 contains
 
 subroutine read_commandline()
+  use mesh, only: global
   integer              :: nargs
   integer              :: i
   character(len = 12)  :: args
@@ -25,9 +24,9 @@ subroutine read_commandline()
     call get_command_argument(i, args)
     select case (i)
       case(1)
-        read(args, *) length
+        read(args, *) global%length
       case(2)
-        read(args, *) n_el_global
+        read(args, *) global%n_el
       case(3)
         read(args, *) leftBC
       case(4)

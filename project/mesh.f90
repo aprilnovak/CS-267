@@ -2,41 +2,43 @@ module mesh
 
 implicit none
 
-real(8), save :: h                 ! element length
-integer, save :: n_nodes_global    ! number of global nodes
-real(8), save, allocatable :: x(:) ! global mesh coordinates
-
-type LM
+type LM ! location matrix
   integer, allocatable :: matrix(:, :) ! connectivity matrix
   integer, allocatable :: cnt(:)       ! node counts
 end type LM
 
-type decomp
+type decomp ! decomposed domain
   integer, allocatable :: elems(:)          ! elements per domain
   integer, allocatable :: numnodes(:)       ! nodes per domain
   integer, allocatable :: edges(:, :)       ! nodes on edges of each domain
   integer, allocatable :: recv_displs(:)    ! displacements from start
 end type decomp
 
-type(decomp), save :: domains ! holds domain decomposition information
+type geom
+  integer :: n_nodes
+  integer :: n_el
+  real(8) :: length
+  real(8) :: h
+  real, allocatable :: x(:) 
+end type geom
+
+type(decomp), save :: domains   ! holds domain decomposition information
+type(geom),   save :: global    ! holds global mesh information
 
 integer, private :: AllocateStatus
 
 contains
 
 subroutine initialize_global_mesh()
-  use read_data, only: n_el=>n_el_global, length
-
-  integer              :: i
+  integer :: i
+  global%h = global%length / real(global%n_el)
+  global%n_nodes = global%n_el + 1
  
-  h = length / real(n_el)
-  n_nodes_global = n_el + 1
+  allocate(global%x(global%n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of global%x array failed."
  
-  allocate(x(n_nodes_global), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of x array failed."
- 
-  do i = 1, n_nodes_global
-    x(i) = real(i - 1) * h
+  do i = 1, global%n_nodes
+    global%x(i) = real(i - 1) * global%h
   end do
 end subroutine initialize_global_mesh
 
@@ -65,7 +67,6 @@ subroutine initialize_domain_decomposition(numprocs)
 ! elems: elements per parallel MPI process
 ! numnodes: nodes per parallel MPI process
 ! edges: nodes on edge of each parallel MPI process 
-  use read_data, only: n_el=>n_el_global
 
   integer, intent(in) :: numprocs
   integer :: mx, i, j
@@ -79,23 +80,22 @@ subroutine initialize_domain_decomposition(numprocs)
   allocate(domains%recv_displs(numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocate of recv_displs array failed."
 
-  mx = (n_el + numprocs - 1) / numprocs
+  mx = (global%n_el + numprocs - 1) / numprocs
   domains%elems = mx
  
   i = 1
-  do j = mx * numprocs - n_el, 1, -1
+  do j = mx * numprocs - global%n_el, 1, -1
     domains%elems(i) = domains%elems(i) - 1
     i = i + 1
     if (i == numprocs + 1) i = 1
   end do
  
-  do j = 1, numprocs
-    domains%numnodes(j) = domains%elems(j) * 2 - (domains%elems(j) - 1)
-  end do
+  domains%numnodes(:) = domains%elems(:) + 1
  
-  domains%edges(:, 1) = (/1, domains%elems(1) * 2 - (domains%elems(1) - 1)/)
+  domains%edges(:, 1) = (/1, domains%elems(1) + 1/)
   do i = 2, numprocs
-    domains%edges(:, i) = (/domains%edges(2, i - 1), domains%edges(2, i - 1) + domains%elems(i) * 2 - domains%elems(i) /)
+    domains%edges(:, i) = (/domains%edges(2, i - 1), &
+                            domains%edges(2, i - 1) + domains%elems(i)/)
   end do
  
   domains%recv_displs = 0
@@ -105,9 +105,9 @@ subroutine initialize_domain_decomposition(numprocs)
 end subroutine initialize_domain_decomposition
 
 
-subroutine dealloc_x()
-  deallocate(x)
-end subroutine dealloc_x
+subroutine dealloc_global_mesh()
+  deallocate(global%x)
+end subroutine dealloc_global_mesh
 
 subroutine dealloc_domains()
   deallocate(domains%elems, domains%numnodes, domains%edges, domains%recv_displs)

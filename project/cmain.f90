@@ -124,7 +124,7 @@ call mpi_comm_rank(mpi_comm_world, rank, ierr)
 
 ! only the rank 0 process knows about the whole solution vector
 if (rank == 0) then
-  allocate(soln(n_nodes_global), stat = AllocateStatus)
+  allocate(soln(global%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of soln array failed."
   soln = 0.0
 end if
@@ -140,9 +140,9 @@ if (rank == 0) then
   
   call allocatecoarse()
 
-  xcoarse(1) = x(domains%edges(1, 1))
+  xcoarse(1) = global%x(domains%edges(1, 1))
   do i = 2, n_nodes
-    xcoarse(i) = x(domains%edges(2, i - 1))
+    xcoarse(i) = global%x(domains%edges(2, i - 1))
     hlocal(i - 1) = xcoarse(i) - xcoarse(i - 1)
   end do
 
@@ -156,7 +156,7 @@ if (rank == 0) then
   do q = 1, n_el
     do i = 1, 2
       rglobcoarse(LMcoarse%matrix(i, q)) = rglobcoarse(LMcoarse%matrix(i, q)) &
-                                    + hlocal(q) * hlocal(q) * rel(i) / (h * h)
+                                    + hlocal(q) * hlocal(q) * rel(i) / (global%h * global%h)
     end do
   end do
   rglobcoarse(BCs(1)) = BCvals(1)
@@ -165,7 +165,7 @@ if (rank == 0) then
   rowscoarse = form_csr(LMcoarse%matrix, LMcoarse%cnt, n_nodes)
 
   ! initial guess is a straight line between the two endpoints
-  m = (rightBC - leftBC) / length
+  m = (rightBC - leftBC) / global%length
   acoarse = m * (xcoarse - xcoarse(1)) + BCvals(1)
 
   call conjugategradient(rowscoarse, acoarse, rglobcoarse, zcoarse, rescoarse, BCs, reltol = reltol)
@@ -191,7 +191,7 @@ n_nodes = domains%numnodes(rank + 1)
 
 call allocateDDdata()
 
-xel       = x(domains%edges(1, rank + 1):domains%edges(2, rank + 1))
+xel       = global%x(domains%edges(1, rank + 1):domains%edges(2, rank + 1))
 BCs       = (/1, n_nodes/)
 BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
@@ -255,23 +255,23 @@ end do ! ends outermost domain decomposition loop
 
 ! each processor broadcasts its final solution to the rank 0 process ----------
 call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
-                 soln(1:(n_nodes_global - 1)), domains%elems, domains%recv_displs, mpi_real8, &
+                 soln(1:(global%n_nodes - 1)), domains%elems, domains%recv_displs, mpi_real8, &
                  0, mpi_comm_world, ierr)
 
 ! write results to output file ------------------------------------------------
 if (rank == 0) then
-  soln(n_nodes_global) = rightBC 
+  soln(global%n_nodes) = rightBC 
   ! write to an output file. If this file exists, it will be re-written.
   open(1, file='output.txt', iostat=AllocateStatus, status="replace")
   if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 
-  write(1, *) numprocs, n_el_global, ddcnt, soln
+  write(1, *) numprocs, global%n_el, ddcnt, soln
 end if
 
 ! final timing results --------------------------------------------------------
 if (rank == 0) then
   call cpu_time(finish)
-  print *, 'P: ', numprocs, 'n_el: ', n_el_global, 'runtime: ', finish - start
+  print *, 'P: ', numprocs, 'n_el: ', global%n_el, 'runtime: ', finish - start
 end if
 
 ! deallocate memory -----------------------------------------------------------
@@ -283,8 +283,8 @@ if (rank == 0) deallocate(soln)
 
 call mpi_finalize(ierr)
 
-call dealloc_x()
 call dealloc_domains()
+call dealloc_global_mesh()
 call dealloc_shapefunctions()
 call dealloc_quadset()
 ! ------------------------------------------------------------------------------
@@ -313,15 +313,15 @@ subroutine allocateDDdata()
   implicit none
   allocate(xel(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
-  allocate(rglob(n_nodes), stat = AllocateStatus)
+  allocate(rglob(global%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
-  allocate(a(n_nodes), stat = AllocateStatus)
+  allocate(a(global%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of a array failed."
-  allocate(z(n_nodes), stat = AllocateStatus)
+  allocate(z(global%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of z array failed."
-  allocate(res(n_nodes), stat = AllocateStatus)
+  allocate(res(global%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-  allocate(rows(n_nodes), stat = AllocateStatus)
+  allocate(rows(global%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 end subroutine allocateDDdata
 
