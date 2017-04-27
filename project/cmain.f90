@@ -69,16 +69,12 @@ real(8), dimension(:),    allocatable :: acoarse       ! coarse-mesh solution
 real(8), dimension(:, :), allocatable :: BCcoarse      ! coarse solution BCs
 
 ! variables to define OpenMP thread parallelism
-integer :: numthreads ! number of OpenMP threads
-integer :: mythread   ! current thread number
 integer :: provided   ! holds provided level of thread support
 integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
 type(row), allocatable, dimension(:) :: rows       ! rows in global K
 type(row), allocatable, dimension(:) :: rowscoarse ! rows in coarse global K
-
-type(LM) :: LMfine
-type(LM) :: LMcoarse
+type(LM)                             :: LMfine, LMcoarse
 
 call cpu_time(start)
 
