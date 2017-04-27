@@ -186,7 +186,7 @@ end if
 call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
 
 ! Specify the domain decomposition parameters for each domain -----------------
-n_el    = domains%elems(rank + 1)
+!n_el    = domains%elems(rank + 1)
 n_nodes = domains%numnodes(rank + 1)
 
 call allocateDDdata()
@@ -196,8 +196,8 @@ BCs       = (/1, n_nodes/)
 BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
 
-LMfine = locationmatrix(n_el, n_nodes)
-rglob = globalload(LMfine%matrix, rel, n_el, n_nodes)      
+LMfine = locationmatrix(dd(rank + 1)%n_el, n_nodes)
+rglob = globalload(LMfine%matrix, rel, dd(rank + 1)%n_el, n_nodes)      
 rows = form_csr(LMfine%matrix, LMfine%cnt, n_nodes)
 
 ! initial guess is a straight line between the two endpoints
@@ -313,15 +313,15 @@ subroutine allocateDDdata()
   implicit none
   allocate(xel(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
-  allocate(rglob(global%n_nodes), stat = AllocateStatus)
+  allocate(rglob(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
-  allocate(a(global%n_nodes), stat = AllocateStatus)
+  allocate(a(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of a array failed."
-  allocate(z(global%n_nodes), stat = AllocateStatus)
+  allocate(z(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of z array failed."
-  allocate(res(global%n_nodes), stat = AllocateStatus)
+  allocate(res(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-  allocate(rows(global%n_nodes), stat = AllocateStatus)
+  allocate(rows(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 end subroutine allocateDDdata
 

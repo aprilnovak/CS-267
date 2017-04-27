@@ -24,6 +24,7 @@ end type geom
 
 type(decomp), save :: domains   ! holds domain decomposition information
 type(geom),   save :: global    ! holds global mesh information
+type(geom), allocatable,  save :: dd(:)        ! holds domain decomposition information
 
 integer, private :: AllocateStatus
 
@@ -80,12 +81,22 @@ subroutine initialize_domain_decomposition(numprocs)
   allocate(domains%recv_displs(numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocate of recv_displs array failed."
 
+  allocate(dd(numprocs), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocate of dd array failed."
+  
+
   mx = (global%n_el + numprocs - 1) / numprocs
+  
+  do i = 1, numprocs
+    dd(i)%n_el = mx
+  end do
+
   domains%elems = mx
  
   i = 1
   do j = mx * numprocs - global%n_el, 1, -1
     domains%elems(i) = domains%elems(i) - 1
+    dd(i)%n_el = dd(i)%n_el - 1
     i = i + 1
     if (i == numprocs + 1) i = 1
   end do
@@ -111,6 +122,7 @@ end subroutine dealloc_global_mesh
 
 subroutine dealloc_domains()
   deallocate(domains%elems, domains%numnodes, domains%edges, domains%recv_displs)
+  deallocate(dd)
 end subroutine dealloc_domains
 
 end module mesh
