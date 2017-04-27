@@ -16,6 +16,7 @@ end type decomp
 type geom
   integer :: n_nodes
   integer :: n_el
+  integer :: BCs(2)
   real(8) :: length
   real(8) :: h
   real, allocatable :: x(:) 
@@ -47,6 +48,7 @@ end subroutine initialize_global_mesh
 subroutine initialize_coarse_mesh()
   coarse%n_el = size(dd)
   coarse%n_nodes = coarse%n_el + 1
+  coarse%BCs = (/ 1, coarse%n_nodes /)
 end subroutine initialize_coarse_mesh
 
 
@@ -119,6 +121,10 @@ subroutine initialize_domain_decomposition(numprocs)
     allocate(dd(i)%x(dd(i)%n_nodes), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocate of dd(i)%x array failed."
     dd(i)%x = global%x(domains%edges(1, i):domains%edges(2, i))
+  end do
+
+  do i = 1, numprocs
+    dd(i)%BCs = (/1, dd(i)%n_nodes /)
   end do 
  
   domains%recv_displs = 0
