@@ -41,12 +41,8 @@ real(8)  :: startCSR           ! start CSR time
 real(8)  :: endCSR             ! end CSR time
 
 ! variables to define the global problem
-!integer                               :: n_nodes_global ! global nodes
-!real(8)                               :: h              ! length of one element
 integer, dimension(2)                 :: BCs            ! BC nodes
 real(8), dimension(:),    allocatable :: soln           ! global soln vector
-!real(8), dimension(:),    allocatable :: x              ! node coordinates
-integer, dimension(:, :), allocatable :: LM             ! location matrix
 
 ! variables to define the CG solver
 integer                            :: cnt         ! number of CG iterations
@@ -68,7 +64,6 @@ integer, dimension(:, :), allocatable :: edges       ! nodes on edge of domain
 integer, dimension(:),    allocatable :: recv_displs ! displacement of domain
 real(8), dimension(:),    allocatable :: xel         ! coordinates in domain
 integer, dimension(:),    allocatable :: numnodes    ! nodes in domain
-integer, dimension(:),    allocatable :: LMcount     ! elements in row i of K
 integer, dimension(:),    allocatable :: elems       ! n_el in each domain
 real(8), dimension(:),    allocatable :: rglob       ! global load vector
 real(8), dimension(:),    allocatable :: a           ! CG solution iterates
@@ -85,8 +80,6 @@ real(8), dimension(:),    allocatable :: rglobcoarse   ! global load vector
 real(8), dimension(:),    allocatable :: xcoarse       ! coords of shared nodes
 real(8), dimension(:),    allocatable :: acoarse       ! coarse-mesh solution
 real(8), dimension(:, :), allocatable :: BCcoarse      ! coarse solution BCs
-integer, dimension(:),    allocatable :: LMcountcoarse ! elements in row i of K
-integer, dimension(:, :), allocatable :: LMcoarse      ! LM of coarse problem
 
 ! variables to define OpenMP thread parallelism
 integer :: numthreads ! number of OpenMP threads
@@ -96,6 +89,9 @@ integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
 type(row), allocatable, dimension(:) :: rows       ! rows in global K
 type(row), allocatable, dimension(:) :: rowscoarse ! rows in coarse global K
+
+type(LM) :: LMfine
+type(LM) :: LMcoarse
 
 call cpu_time(start)
 
@@ -111,8 +107,6 @@ call read_commandline()
 ! determine global mesh quantities
 call initialize_global_mesh()
 
-!call initialize(h, x, n_el_global, n_nodes)              ! initialize problem vars
-
 ! define the quadrature rule
 call define_quadset()
 
@@ -120,7 +114,7 @@ call define_quadset()
 call define_shapefunctions()
 
 ! determine the elemental load vector
-call elementalload(h)
+call elementalload()
 
 ! determine the elemental stiffness matrix
 call elementalstiffness()
@@ -157,20 +151,20 @@ if (rank == 0) then
   BCs    = (/ 1, n_nodes /) 
   BCvals = (/ leftBC, rightBC /)
 
-  call locationmatrix(LMcoarse, LMcountcoarse, n_el)      ! form the location matrix
+  LMcoarse = locationmatrix(n_el, n_nodes)
 
   ! form the global load vector
   rglobcoarse = 0.0
   do q = 1, n_el
     do i = 1, 2
-      rglobcoarse(LMcoarse(i, q)) = rglobcoarse(LMcoarse(i, q)) &
+      rglobcoarse(LMcoarse%matrix(i, q)) = rglobcoarse(LMcoarse%matrix(i, q)) &
                                     + hlocal(q) * hlocal(q) * rel(i) / (h * h)
     end do
   end do
   rglobcoarse(BCs(1)) = BCvals(1)
   rglobcoarse(BCs(2)) = BCvals(2)   
 
-  rowscoarse = form_csr(LMcoarse, LMcountcoarse, n_nodes)
+  rowscoarse = form_csr(LMcoarse%matrix, LMcoarse%cnt, n_nodes)
 
   ! initial guess is a straight line between the two endpoints
   m = (rightBC - leftBC) / length
@@ -187,8 +181,8 @@ if (rank == 0) then
     BCcoarse(1, i + 1) = acoarse(i + 1)
   end do
 
-  deallocate(xcoarse, LMcoarse, rglobcoarse, acoarse, hlocal)  
-  deallocate(LMcountcoarse, rowscoarse)
+  deallocate(xcoarse, LMcoarse%matrix, LMcoarse%cnt, rglobcoarse, acoarse, hlocal)  
+  deallocate(rowscoarse)
 end if
 
 call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
@@ -204,9 +198,9 @@ BCs       = (/1, n_nodes/)
 BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
 
-call locationmatrix(LM, LMcount, n_el)          ! form LM and count entries
-rglob = globalload(LM, rel, n_el, n_nodes)      ! form global load vector
-rows = form_csr(LM, LMcount, n_nodes)
+LMfine = locationmatrix(n_el, n_nodes)
+rglob = globalload(LMfine%matrix, rel, n_el, n_nodes)      ! form global load vector
+rows = form_csr(LMfine%matrix, LMfine%cnt, n_nodes)
 
 ! initial guess is a straight line between the two endpoints
 m = (BCvals(2) - BCvals(1)) / (xel(n_nodes) - xel(1))
@@ -282,14 +276,14 @@ if (rank == 0) then
 end if
 
 ! deallocate memory -----------------------------------------------------------
-deallocate(xel, LM, rglob, a, z, res)
-deallocate(numnodes, elems, edges, recv_displs, BCcoarse, LMcount)
+deallocate(xel, LMfine%matrix, LMfine%cnt, rglob, a, z, res)
+deallocate(numnodes, elems, edges, recv_displs, BCcoarse)
 deallocate(rows)
 if (rank == 0) deallocate(soln)
 
 call mpi_finalize(ierr)
 
-deallocate(x)
+call dealloc_x()
 call dealloc_shapefunctions()
 call dealloc_quadset()
 ! ------------------------------------------------------------------------------
@@ -303,8 +297,6 @@ subroutine allocatecoarse()
   if (AllocateStatus /= 0) STOP "Allocation of xcoarse array failed."
   allocate(hlocal(n_el), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of hlocal array failed."
-  allocate(LMcoarse(2, n_el), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of LMcoarse array failed."
   allocate(rglobcoarse(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rglobcoarse array failed."
   allocate(acoarse(n_nodes), stat = AllocateStatus)
@@ -313,10 +305,6 @@ subroutine allocatecoarse()
   if (AllocateStatus /= 0) STOP "Allocation of zcoarse array failed."
   allocate(rescoarse(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rescoarse array failed."
-  allocate(LMcountcoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of LMcountcoarse array failed."
-!  allocate(rowscoarse(n_nodes), stat = AllocateStatus)
-!  if (AllocateStatus /= 0) STOP "Allocation of rowscoarse array failed."
 end subroutine allocatecoarse
 
 
@@ -324,8 +312,6 @@ subroutine allocateDDdata()
   implicit none
   allocate(xel(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
-  allocate(LM(2, n_el), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of LM array failed."
   allocate(rglob(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
   allocate(a(n_nodes), stat = AllocateStatus)
@@ -334,8 +320,6 @@ subroutine allocateDDdata()
   if (AllocateStatus /= 0) STOP "Allocation of z array failed."
   allocate(res(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of res array failed."
-  allocate(LMcount(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of LMcount array failed."
   allocate(rows(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 end subroutine allocateDDdata
@@ -539,48 +523,6 @@ function csr_mult(rows, a, BCs)
     csr_mult(BCs(i)) = a(BCs(i))
   end do
 end function csr_mult
-
-
-subroutine locationmatrix(LM, LMcount, n_el)
-  implicit none
-  integer, intent(inout) :: LM(:, :)
-  integer, intent(inout) :: LMcount(:)
-  integer, intent(in)    :: n_el
-  integer                :: j
-  
-  ! Determine the number of elements that contain each node (given as a 
-  ! vector of length n_nodes). Then, the formula to obtain the number of 
-  ! nonzero entries per row is (LMcount - 1 + n_en), so compute the number
-  ! of nonzero entries per row in the global stiffness matrix.
- 
-  LMcount = 1
- 
-  do j = 1, n_el
-    LM(:, j) = (/ j, j + 1 /)
-    LMcount(LM(1, j)) = LMcount(LM(1, j)) + 1
-    LMcount(LM(2, j)) = LMcount(LM(2, j)) + 1
-  end do
-end subroutine locationmatrix
-
-
-subroutine initialize(h, x, n_el, n_nodes)
-  implicit none
-  real(8), intent(out) :: h 
-  integer, intent(in)  :: n_el    
-  integer, intent(out) :: n_nodes 
-  real(8), dimension(:), allocatable, intent(out) :: x 
-  integer              :: i
-
-  h = length / real(n_el)
-  n_nodes = n_el + 1 
-
-  allocate(x(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of x array failed."
-
-  do i = 1, size(x)
-    x(i) = real(i - 1) * h
-  end do
-end subroutine initialize
 
 
 END PROGRAM main

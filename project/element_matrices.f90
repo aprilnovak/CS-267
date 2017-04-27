@@ -1,6 +1,5 @@
 module element_matrices
 
-use quadrature, only: set ! has access to the global quadrature set
 implicit none
 
 ! shape function type
@@ -26,6 +25,8 @@ contains
 
 subroutine define_shapefunctions()
 ! assign the values for the shape functions and their derivatives
+  use quadrature, only: set ! quadrature set
+
   allocate(func%phi(2, set%n_qp), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of phi array failed."
   allocate(func%dphi(2, set%n_qp), stat = AllocateStatus)
@@ -38,9 +39,12 @@ subroutine define_shapefunctions()
 end subroutine define_shapefunctions
 
 
-subroutine elementalload(source, h)
+subroutine elementalload()
 ! assemble the elemental load vector
-  real(8), intent(in) :: source, h
+  use quadrature, only: set ! quadrature set
+  use read_data, only: source ! heat source
+  use mesh, only: h ! element width
+
   integer             :: q, i
   
   rel = 0.0
@@ -52,9 +56,11 @@ subroutine elementalload(source, h)
 end subroutine elementalload
 
 
-subroutine elementalstiffness(k)
+subroutine elementalstiffness()
 ! assemble the elemental stiffness matrix  
-  real(8), intent(in) :: k
+  use quadrature, only: set ! quadrature set
+  use read_data, only: k
+  
   integer             :: q, i
 
   kel = 0.0
