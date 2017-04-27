@@ -193,15 +193,15 @@ BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
 
 LMfine = locationmatrix(dd(rank + 1)%n_el, dd(rank + 1)%n_nodes)
-rglob = globalload(LMfine%matrix, rel, dd(rank + 1)%n_el, dd(rank + 1)%n_nodes)      
-rows = form_csr(LMfine, dd(rank + 1)%n_nodes)
+rglob  = globalload(LMfine%matrix, rel, dd(rank + 1)%n_el, dd(rank + 1)%n_nodes)      
+rows   = form_csr(LMfine, dd(rank + 1)%n_nodes)
 
 ! initial guess is a straight line between the two endpoints
 m = (BCvals(2) - BCvals(1)) / (dd(rank + 1)%x(n_nodes) - dd(rank + 1)%x(1))
 a = m * (dd(rank + 1)%x - dd(rank + 1)%x(1)) + BCvals(1)
 
 itererror = 1
-ddcnt = 0
+ddcnt     = 0
 do while (itererror > ddtol)
   ! save the previous values of the interface BCs
   prev = BCvals
@@ -398,20 +398,6 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs, reltol)
 end subroutine conjugategradient
 
 
-!real function dotprod(vec1, vec2)
-!  implicit none
-!  real(8)  :: vec1(:), vec2(:)
-!  integer  :: i, n
-!  
-!  n = size(vec1)
-!  dotprod = 0.0  
-!
-!  do i = 1, n
-!    dotprod = dotprod + vec1(i) * vec2(i)
-!  end do
-!end function dotprod
-
-
 function csr_mult_dot(rows, a, BCs, vector)
   implicit none
   type(row) :: rows(:)
@@ -445,34 +431,6 @@ function csr_mult_dot(rows, a, BCs, vector)
     csr_mult_dot = csr_mult_dot + temp(i)
   end do
 end function csr_mult_dot
-
-
-function csr_mult(rows, a, BCs)
-  implicit none
-  type(row) :: rows(:)
-  real(8)   :: a(:)
-  integer   :: BCs(:)
-  integer   :: n, i, j
-  real(8)   :: accum
-  
-  ! return value of function, as an automatic array
-  real(8)   :: csr_mult(size(a))  
-
-  n = size(a)
- 
-  do i = 1, n
-    accum = 0.0
-    do j = 1, size(rows(i)%columns(:))
-      accum = accum + rows(i)%values(j) * a(rows(i)%columns(j))
-    end do  
-    csr_mult(i) = accum
-  end do
- 
-  ! apply boundary conditions
-  do i = 1, size(BCs)
-    csr_mult(BCs(i)) = a(BCs(i))
-  end do
-end function csr_mult
 
 
 END PROGRAM main
