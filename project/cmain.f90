@@ -14,7 +14,7 @@ PROGRAM main
 use read_data
 
 ! define quantities related to the mesh
-!use mesh
+use mesh
 
 ! define the quadrature rule
 use quadrature
@@ -41,11 +41,11 @@ real(8)  :: startCSR           ! start CSR time
 real(8)  :: endCSR             ! end CSR time
 
 ! variables to define the global problem
-integer                               :: n_nodes_global ! global nodes
-real(8)                               :: h              ! length of one element
+!integer                               :: n_nodes_global ! global nodes
+!real(8)                               :: h              ! length of one element
 integer, dimension(2)                 :: BCs            ! BC nodes
 real(8), dimension(:),    allocatable :: soln           ! global soln vector
-real(8), dimension(:),    allocatable :: x              ! node coordinates
+!real(8), dimension(:),    allocatable :: x              ! node coordinates
 integer, dimension(:, :), allocatable :: LM             ! location matrix
 
 ! variables to define the CG solver
@@ -108,15 +108,22 @@ call read_namelist()
 ! read information from the command line
 call read_commandline()
 
+! determine global mesh quantities
+call initialize_global_mesh()
 
-call initialize(h, x, n_el_global, n_nodes)              ! initialize problem vars
+!call initialize(h, x, n_el_global, n_nodes)              ! initialize problem vars
 
+! define the quadrature rule
 call define_quadset()
-call define_shapefunctions()
-call elementalload(source, h)
-call elementalstiffness(k)
 
-n_nodes_global = n_nodes
+! define the shape functions
+call define_shapefunctions()
+
+! determine the elemental load vector
+call elementalload(h)
+
+! determine the elemental stiffness matrix
+call elementalstiffness()
 
 ! initialize the parallel MPI environment with mpi_thread_single thread support
 call mpi_init_thread(0, provided, ierr)
