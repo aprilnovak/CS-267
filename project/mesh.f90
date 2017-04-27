@@ -102,7 +102,11 @@ subroutine initialize_domain_decomposition(numprocs)
   end do
  
   domains%numnodes(:) = domains%elems(:) + 1
- 
+  
+  do i = 1, numprocs
+    dd(i)%n_nodes = dd(i)%n_el + 1
+  end do 
+
   domains%edges(:, 1) = (/1, domains%elems(1) + 1/)
   do i = 2, numprocs
     domains%edges(:, i) = (/domains%edges(2, i - 1), &
