@@ -58,16 +58,11 @@ real(8), dimension(:), allocatable :: res         ! solution residual
 integer                               :: n_el        ! number of local elements
 integer                               :: n_nodes     ! number of (local) nodes
 integer                               :: numprocs    ! number of processors
-!integer                               :: maxperproc  ! max elems per processor
 integer                               :: rank        ! processor rank
 integer                               :: ddcnt       ! DD counter
 real(8)                               :: itererror   ! whole-loop iter error
 integer                               :: ierr        ! error for MPI calls
-!integer, dimension(:, :), allocatable :: edges       ! nodes on edge of domain
-!integer, dimension(:),    allocatable :: recv_displs ! displacement of domain
 real(8), dimension(:),    allocatable :: xel         ! coordinates in domain
-!integer, dimension(:),    allocatable :: numnodes    ! nodes in domain
-!integer, dimension(:),    allocatable :: elems       ! n_el in each domain
 real(8), dimension(:),    allocatable :: rglob       ! global load vector
 real(8), dimension(:),    allocatable :: a           ! CG solution iterates
 integer, dimension(mpi_status_size)   :: stat        ! MPI send/receive status
@@ -136,7 +131,6 @@ end if
 
 call allocatedecomp()           ! allocate space for decompsition data
 call initialize_domain_decomposition(numprocs)
-!call initializedecomp()         ! initialize domain decomposition
 
 ! perform a coarse solution to get initial guesses for the interface values
 ! this only needs to be performed by the rank 0 process
@@ -146,9 +140,9 @@ if (rank == 0) then
   
   call allocatecoarse()
 
-  xcoarse(1) = x(edges(1, 1))
+  xcoarse(1) = x(domains%edges(1, 1))
   do i = 2, n_nodes
-    xcoarse(i) = x(edges(2, i - 1))
+    xcoarse(i) = x(domains%edges(2, i - 1))
     hlocal(i - 1) = xcoarse(i) - xcoarse(i - 1)
   end do
 
@@ -192,12 +186,12 @@ end if
 call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
 
 ! Specify the domain decomposition parameters for each domain -----------------
-n_el    = elems(rank + 1)
-n_nodes = numnodes(rank + 1)
+n_el    = domains%elems(rank + 1)
+n_nodes = domains%numnodes(rank + 1)
 
 call allocateDDdata()
 
-xel       = x(edges(1, rank + 1):edges(2, rank + 1))
+xel       = x(domains%edges(1, rank + 1):domains%edges(2, rank + 1))
 BCs       = (/1, n_nodes/)
 BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
@@ -261,7 +255,7 @@ end do ! ends outermost domain decomposition loop
 
 ! each processor broadcasts its final solution to the rank 0 process ----------
 call mpi_gatherv(a(1:(n_nodes - 1)), n_nodes - 1, mpi_real8, &
-                 soln(1:(n_nodes_global - 1)), elems, recv_displs, mpi_real8, &
+                 soln(1:(n_nodes_global - 1)), domains%elems, domains%recv_displs, mpi_real8, &
                  0, mpi_comm_world, ierr)
 
 ! write results to output file ------------------------------------------------
@@ -290,7 +284,7 @@ if (rank == 0) deallocate(soln)
 call mpi_finalize(ierr)
 
 call dealloc_x()
-call dealloc_dd()
+call dealloc_domains()
 call dealloc_shapefunctions()
 call dealloc_quadset()
 ! ------------------------------------------------------------------------------
@@ -334,53 +328,9 @@ end subroutine allocateDDdata
 
 subroutine allocatedecomp()
   implicit none
-  ! each process has their own copy of this DD information
-  !allocate(numnodes(numprocs), stat = AllocateStatus)
-  !if (AllocateStatus /= 0) STOP "Allocation of numnodes array failed."
-  !allocate(elems(numprocs), stat = AllocateStatus)
-  !if (AllocateStatus /= 0) STOP "Allocation of elems array failed."
-  !allocate(edges(2, numprocs), stat = AllocateStatus)
-  !if (AllocateStatus /= 0) STOP "Allocation of edges array failed."
-  !allocate(recv_displs(numprocs), stat = AllocateStatus)
-  !if (AllocateStatus /= 0) STOP "Allocation of recv_displs array failed."
   allocate(BCcoarse(2, numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of BCcoarse array failed."
 end subroutine allocatedecomp
-
-
-!subroutine initializedecomp()
-!  implicit none
-!
-!  ! distribute the elements among the processors 
-!  maxperproc = (n_el_global + numprocs - 1) / numprocs
-!  elems = maxperproc
-! 
-!  i = 1
-!  do j = maxperproc * numprocs - n_el_global, 1, -1
-!    elems(i) = elems(i) - 1
-!    i = i + 1
-!    if (i == numprocs + 1) i = 1
-!  end do
-! 
-!  ! assign the numbers of nodes in each domain 
-!  do j = 1, numprocs
-!    numnodes(j) = elems(j) * 2 - (elems(j) - 1)
-!  end do
-!  
-!  ! assign the global node numbers that correspond to the edges of each domain
-!  edges(:, 1) = (/1, elems(1) * 2 - (elems(1) - 1)/)
-!  do i = 2, numprocs
-!    edges(:, i) = (/edges(2, i - 1), edges(2, i - 1) + elems(i) * 2 - elems(i) /)
-!  end do
-!  
-!  ! assign an initial itererror (dummy value to enter the loop)
-!  itererror = 1
-!
-!  recv_displs = 0
-!  do i = 2, numprocs
-!    recv_displs(i) = recv_displs(i - 1) + elems(i - 1)
-!  end do
-!end subroutine initializedecomp
 
 
 function globalload(LM, rel, n_el, n_nodes)
