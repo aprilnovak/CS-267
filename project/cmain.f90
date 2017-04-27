@@ -371,7 +371,8 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs, reltol)
   end if
 
   z           = res
-  lambda      = dotprod(z, res) / csr_mult_dot(rows, z, BCs, z)
+  lambda      = dotprod(z, res) / dotprod(csr_mult(rows, z, BCs), z)
+
   a           = a + lambda * z
   res         = rglob - csr_mult(rows, a, BCs)
   convergence = 0.0
@@ -382,9 +383,9 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs, reltol)
 
   cnt = 0
   do while (convergence > tol)
-    theta       = csr_mult_dot(rows, z, BCs, res) / csr_mult_dot(rows, z, BCs, z)
+    theta       = dotprod(csr_mult(rows, z, BCs), res) / dotprod(csr_mult(rows, z, BCs), z)
     z           = res - theta * z
-    lambda      = dotprod(z, res) / csr_mult_dot(rows, z, BCs, z)
+    lambda      = dotprod(z, res) / dotprod(csr_mult(rows, z, BCs), z)
     a           = a + lambda * z
     res         = rglob - csr_mult(rows, a, BCs)
     convergence = 0.0
@@ -396,41 +397,5 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs, reltol)
   cnt = cnt + 1
   end do
 end subroutine conjugategradient
-
-
-function csr_mult_dot(rows, a, BCs, vector)
-  implicit none
-  type(row) :: rows(:)
-  real(8)   :: a(:)
-  integer   :: BCs(:)
-  real(8)   :: vector(:)
-  integer   :: n, i, j
-  real(8)   :: accum
-  real(8)   :: temp(size(a))
-
-  ! return value of function
-  real(8)   :: csr_mult_dot 
-
-  n = size(a)
- 
-  do i = 1, n
-    accum = 0.0
-    do j = 1, size(rows(i)%columns(:))
-      accum = accum + rows(i)%values(j) * a(rows(i)%columns(j))
-    end do  
-    temp(i) = accum * vector(i)
-  end do
- 
-  ! apply boundary conditions
-  do i = 1, size(BCs)
-    temp(BCs(i)) = a(BCs(i)) * vector(BCs(i))
-  end do
-
-  csr_mult_dot = 0.0
-  do i = 1, n
-    csr_mult_dot = csr_mult_dot + temp(i)
-  end do
-end function csr_mult_dot
-
 
 END PROGRAM main
