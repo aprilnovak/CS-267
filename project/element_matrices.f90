@@ -73,11 +73,13 @@ subroutine elementalstiffness()
 end subroutine elementalstiffness
 
 
-function globalvector(lmatrix, elemvec, n_nodes) result(vector)
+function globalvector(lmatrix, elemvec, n_nodes, factor) result(vector)
 ! assemble global vector from location matrix and elemental vector
-  use mesh, only: LM
+  use mesh, only: LM, global
+
   type(LM), intent(in) :: lmatrix
   real(8), intent(in)  :: elemvec(:)
+  real(8), intent(in), optional  :: factor(:) ! multiplicative factor (lengths)
   integer, intent(in)  :: n_nodes
 
   real(8)                :: vector(n_nodes)
@@ -86,9 +88,16 @@ function globalvector(lmatrix, elemvec, n_nodes) result(vector)
   n = size(lmatrix%matrix(1, :))
 
   vector = 0.0
-  do q = 1, n
-      vector(lmatrix%matrix(:, q)) = vector(lmatrix%matrix(:, q)) + elemvec(:)
-  end do
+
+  if (present(factor)) then
+    do q = 1, n
+      vector(lmatrix%matrix(:, q)) = vector(lmatrix%matrix(:, q)) + factor(q) * factor(q) * elemvec(:) / (global%h * global%h)
+    end do
+  else
+    do q = 1, n
+       vector(lmatrix%matrix(:, q)) = vector(lmatrix%matrix(:, q)) + elemvec(:)
+    end do
+  end if
 end function globalvector
 
 

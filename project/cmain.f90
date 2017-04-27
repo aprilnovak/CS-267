@@ -147,15 +147,8 @@ if (rank == 0) then
   BCvals = (/ leftBC, rightBC /)
 
   LMcoarse = locationmatrix(coarse%n_el, coarse%n_nodes)
-
-  ! form the global load vector
-  rglobcoarse = 0.0
-  do q = 1, coarse%n_el
-    do i = 1, 2
-      rglobcoarse(LMcoarse%matrix(i, q)) = rglobcoarse(LMcoarse%matrix(i, q)) &
-                                    + hlocal(q) * hlocal(q) * rel(i) / (global%h * global%h)
-    end do
-  end do
+  rglobcoarse = globalvector(LMcoarse, rel, coarse%n_nodes, hlocal)
+  
   rglobcoarse(BCs(1)) = BCvals(1)
   rglobcoarse(BCs(2)) = BCvals(2)   
 
