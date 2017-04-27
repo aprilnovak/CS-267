@@ -25,6 +25,9 @@ use element_matrices
 ! define the CSR matrix storage
 use csr_storage
 
+! provide interface to solvers
+use solvers
+
 implicit none
 
 include 'mpif.h'
@@ -448,18 +451,18 @@ subroutine conjugategradient(rows, a, rglob, z, res, BCs, reltol)
 end subroutine conjugategradient
 
 
-real function dotprod(vec1, vec2)
-  implicit none
-  real(8)  :: vec1(:), vec2(:)
-  integer  :: i, n
-  
-  n = size(vec1)
-  dotprod = 0.0  
-
-  do i = 1, n
-    dotprod = dotprod + vec1(i) * vec2(i)
-  end do
-end function dotprod
+!real function dotprod(vec1, vec2)
+!  implicit none
+!  real(8)  :: vec1(:), vec2(:)
+!  integer  :: i, n
+!  
+!  n = size(vec1)
+!  dotprod = 0.0  
+!
+!  do i = 1, n
+!    dotprod = dotprod + vec1(i) * vec2(i)
+!  end do
+!end function dotprod
 
 
 function csr_mult_dot(rows, a, BCs, vector)
