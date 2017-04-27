@@ -29,9 +29,7 @@ use csr_storage
 use solvers
 
 implicit none
-
 include 'mpif.h'
-
 
 ! variables for overall execution
 integer  :: AllocateStatus     ! variable to hold memory allocation success
@@ -124,7 +122,9 @@ if (rank == 0) then
   soln = 0.0
 end if
 
-call allocatedecomp()           ! allocate space for decompsition data
+allocate(BCcoarse(2, numprocs), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of BCcoarse array failed."
+
 call initialize_domain_decomposition(numprocs)
 
 ! perform a coarse solution to get initial guesses for the interface values
@@ -133,7 +133,14 @@ if (rank == 0) then
   n_el    = numprocs
   n_nodes = numprocs + 1
   
-  call allocatecoarse()
+  allocate(xcoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of xcoarse array failed."
+  allocate(hlocal(n_el), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of hlocal array failed."
+  allocate(rglobcoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rglobcoarse array failed."
+  allocate(acoarse(n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of acoarse array failed."
 
   xcoarse(1) = global%x(domains%edges(1, 1))
   do i = 2, n_nodes
@@ -181,8 +188,12 @@ end if
 call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
 
 ! Specify the domain decomposition parameters for each domain -----------------
-
-call allocateDDdata()
+allocate(rglob(dd(rank + 1)%n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
+allocate(a(dd(rank + 1)%n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of a array failed."
+allocate(rows(dd(rank + 1)%n_nodes), stat = AllocateStatus)
+if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 
 BCs       = (/1, dd(rank + 1)%n_nodes/)
 BCvals(1) = BCcoarse(1, rank + 1)
@@ -283,39 +294,7 @@ call dealloc_quadset()
 
 CONTAINS ! define all internal procedures
 
-subroutine allocatecoarse()
-  implicit none
-  allocate(xcoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of xcoarse array failed."
-  allocate(hlocal(n_el), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of hlocal array failed."
-  allocate(rglobcoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rglobcoarse array failed."
-  allocate(acoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of acoarse array failed."
-end subroutine allocatecoarse
-
-
-subroutine allocateDDdata()
-  implicit none
-  allocate(rglob(dd(rank + 1)%n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
-  allocate(a(dd(rank + 1)%n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of a array failed."
-  allocate(rows(dd(rank + 1)%n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
-end subroutine allocateDDdata
-
-
-subroutine allocatedecomp()
-  implicit none
-  allocate(BCcoarse(2, numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of BCcoarse array failed."
-end subroutine allocatedecomp
-
-
 function globalload(LM, rel, n_el, n_nodes)
-  implicit none
   integer, intent(in)    :: LM(:, :)
   real(8), intent(in)    :: rel(:)
   integer, intent(in)    :: n_el, n_nodes
@@ -330,7 +309,6 @@ end function globalload
 
 
 subroutine conjugategradient(rows, a, rglob, BCs, reltol)
-  implicit none
   real(8), intent(inout) :: a(:)          ! resultant vector
   real(8), intent(in)    :: rglob(:)      ! rhs vector
   integer, intent(in)    :: BCs(:)        ! BC nodes 
