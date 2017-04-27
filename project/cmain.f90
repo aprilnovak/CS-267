@@ -62,7 +62,7 @@ integer                               :: rank        ! processor rank
 integer                               :: ddcnt       ! DD counter
 real(8)                               :: itererror   ! whole-loop iter error
 integer                               :: ierr        ! error for MPI calls
-real(8), dimension(:),    allocatable :: xel         ! coordinates in domain
+!real(8), dimension(:),    allocatable :: xel         ! coordinates in domain
 real(8), dimension(:),    allocatable :: rglob       ! global load vector
 real(8), dimension(:),    allocatable :: a           ! CG solution iterates
 integer, dimension(mpi_status_size)   :: stat        ! MPI send/receive status
@@ -191,7 +191,7 @@ call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
 
 call allocateDDdata()
 
-xel       = global%x(domains%edges(1, rank + 1):domains%edges(2, rank + 1))
+!xel       = global%x(domains%edges(1, rank + 1):domains%edges(2, rank + 1))
 BCs       = (/1, dd(rank + 1)%n_nodes/)
 BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
@@ -201,8 +201,8 @@ rglob = globalload(LMfine%matrix, rel, dd(rank + 1)%n_el, dd(rank + 1)%n_nodes)
 rows = form_csr(LMfine%matrix, LMfine%cnt, dd(rank + 1)%n_nodes)
 
 ! initial guess is a straight line between the two endpoints
-m = (BCvals(2) - BCvals(1)) / (xel(n_nodes) - xel(1))
-a = m * (xel - xel(1)) + BCvals(1)
+m = (BCvals(2) - BCvals(1)) / (dd(rank + 1)%x(n_nodes) - dd(rank + 1)%x(1))
+a = m * (dd(rank + 1)%x - dd(rank + 1)%x(1)) + BCvals(1)
 
 itererror = 1
 ddcnt = 0
@@ -275,7 +275,7 @@ if (rank == 0) then
 end if
 
 ! deallocate memory -----------------------------------------------------------
-deallocate(xel, LMfine%matrix, LMfine%cnt, rglob, a, z, res)
+deallocate(LMfine%matrix, LMfine%cnt, rglob, a, z, res)
 deallocate(BCcoarse)
 !deallocate(numnodes, elems, edges, recv_displs, BCcoarse)
 deallocate(rows)
@@ -311,8 +311,8 @@ end subroutine allocatecoarse
 
 subroutine allocateDDdata()
   implicit none
-  allocate(xel(dd(rank + 1)%n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
+!  allocate(xel(dd(rank + 1)%n_nodes), stat = AllocateStatus)
+!  if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
   allocate(rglob(dd(rank + 1)%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
   allocate(a(dd(rank + 1)%n_nodes), stat = AllocateStatus)

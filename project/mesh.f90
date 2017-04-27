@@ -9,7 +9,6 @@ end type LM
 
 type decomp ! decomposed domain
   integer, allocatable :: elems(:)          ! elements per domain
-  integer, allocatable :: numnodes(:)       ! nodes per domain
   integer, allocatable :: edges(:, :)       ! nodes on edges of each domain
   integer, allocatable :: recv_displs(:)    ! displacements from start
 end type decomp
@@ -74,8 +73,6 @@ subroutine initialize_domain_decomposition(numprocs)
  
   allocate(domains%elems(numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocate of elems array failed."
-  allocate(domains%numnodes(numprocs), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocate of numnodes array failed."
   allocate(domains%edges(2, numprocs + 1), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocate of edges array failed."
   allocate(domains%recv_displs(numprocs), stat = AllocateStatus)
@@ -83,7 +80,7 @@ subroutine initialize_domain_decomposition(numprocs)
 
   allocate(dd(numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocate of dd array failed."
-  
+ 
 
   mx = (global%n_el + numprocs - 1) / numprocs
   
@@ -101,8 +98,6 @@ subroutine initialize_domain_decomposition(numprocs)
     if (i == numprocs + 1) i = 1
   end do
  
-  domains%numnodes(:) = domains%elems(:) + 1
-  
   do i = 1, numprocs
     dd(i)%n_nodes = dd(i)%n_el + 1
   end do 
@@ -112,6 +107,12 @@ subroutine initialize_domain_decomposition(numprocs)
     domains%edges(:, i) = (/domains%edges(2, i - 1), &
                             domains%edges(2, i - 1) + domains%elems(i)/)
   end do
+  
+  do i = 1, numprocs
+    allocate(dd(i)%x(dd(i)%n_nodes), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocate of dd(i)%x array failed."
+    dd(i)%x = global%x(domains%edges(1, i):domains%edges(2, i))
+  end do 
  
   domains%recv_displs = 0
   do i = 2, numprocs
@@ -125,7 +126,7 @@ subroutine dealloc_global_mesh()
 end subroutine dealloc_global_mesh
 
 subroutine dealloc_domains()
-  deallocate(domains%elems, domains%numnodes, domains%edges, domains%recv_displs)
+  deallocate(domains%elems, domains%edges, domains%recv_displs)
   deallocate(dd)
 end subroutine dealloc_domains
 
