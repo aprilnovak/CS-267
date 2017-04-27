@@ -51,8 +51,6 @@ real(8), dimension(:),    allocatable :: soln           ! global soln vector
 integer                            :: cnt         ! number of CG iterations
 real(8)                            :: convergence ! difference b/w CG iterations
 real(8)                            :: m           ! slope of line
-real(8), dimension(:), allocatable :: z           ! CG update iterates
-real(8), dimension(:), allocatable :: res         ! solution residual
 
 ! variables to define the local problem
 integer                               :: n_el        ! number of local elements
@@ -71,8 +69,6 @@ real(8), dimension(2)                 :: BCvals      ! BCs for each domain
 
 ! variables to define the coarse-mesh solution
 real(8), dimension(:),    allocatable :: hlocal        ! coarse element lengths
-real(8), dimension(:),    allocatable :: zcoarse       ! CG vector
-real(8), dimension(:),    allocatable :: rescoarse     ! CG residual vector
 real(8), dimension(:),    allocatable :: rglobcoarse   ! global load vector
 real(8), dimension(:),    allocatable :: xcoarse       ! coords of shared nodes
 real(8), dimension(:),    allocatable :: acoarse       ! coarse-mesh solution
@@ -167,7 +163,7 @@ if (rank == 0) then
   m = (rightBC - leftBC) / global%length
   acoarse = m * (xcoarse - xcoarse(1)) + BCvals(1)
 
-  call conjugategradient(rowscoarse, acoarse, rglobcoarse, zcoarse, rescoarse, BCs, reltol = reltol)
+  call conjugategradient(rowscoarse, acoarse, rglobcoarse, BCs, reltol = reltol)
   
   ! insert first-guess BCs into BCcoarse array, then broadcast to all processes
   BCcoarse(1, 1) = acoarse(1)
@@ -210,7 +206,7 @@ do while (itererror > ddtol)
   rglob(BCs(1)) = BCvals(1)
   rglob(BCs(2)) = BCvals(2)   
   
-  call conjugategradient(rows, a, rglob, z, res, BCs, reltol = reltol)
+  call conjugategradient(rows, a, rglob, BCs, reltol = reltol)
   
   ! each processor sends a boundary value to the processor to the right -------
   if (rank /= numprocs - 1) then
@@ -271,7 +267,7 @@ if (rank == 0) then
 end if
 
 ! deallocate memory -----------------------------------------------------------
-deallocate(LMfine%matrix, LMfine%cnt, rglob, a, z, res)
+deallocate(LMfine%matrix, LMfine%cnt, rglob, a)
 deallocate(BCcoarse)
 deallocate(rows)
 if (rank == 0) deallocate(soln)
@@ -297,10 +293,6 @@ subroutine allocatecoarse()
   if (AllocateStatus /= 0) STOP "Allocation of rglobcoarse array failed."
   allocate(acoarse(n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of acoarse array failed."
-  allocate(zcoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of zcoarse array failed."
-  allocate(rescoarse(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rescoarse array failed."
 end subroutine allocatecoarse
 
 
@@ -310,10 +302,6 @@ subroutine allocateDDdata()
   if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
   allocate(a(dd(rank + 1)%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of a array failed."
-  allocate(z(dd(rank + 1)%n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of z array failed."
-  allocate(res(dd(rank + 1)%n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of res array failed."
   allocate(rows(dd(rank + 1)%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 end subroutine allocateDDdata
@@ -341,16 +329,16 @@ function globalload(LM, rel, n_el, n_nodes)
 end function globalload
 
 
-subroutine conjugategradient(rows, a, rglob, z, res, BCs, reltol)
+subroutine conjugategradient(rows, a, rglob, BCs, reltol)
   implicit none
   real(8), intent(inout) :: a(:)          ! resultant vector
-  real(8), intent(inout) :: z(:), res(:)  ! CG vectors
   real(8), intent(in)    :: rglob(:)      ! rhs vector
   integer, intent(in)    :: BCs(:)        ! BC nodes 
   type(row), intent(in)  :: rows(:)       ! kglob in CSR form
   real(8), intent(in), optional :: reltol ! relative CG tolerance
 
   ! local variables
+  real(8) :: z(size(a)), res(size(a))
   real(8) :: lambda, theta, internal, tol
   integer :: cnt, n
   
