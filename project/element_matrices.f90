@@ -73,6 +73,25 @@ subroutine elementalstiffness()
 end subroutine elementalstiffness
 
 
+function globalvector(lmatrix, elemvec, n_nodes) result(vector)
+! assemble global vector from location matrix and elemental vector
+  use mesh, only: LM
+  type(LM), intent(in) :: lmatrix
+  real(8), intent(in)  :: elemvec(:)
+  integer, intent(in)  :: n_nodes
+
+  real(8)                :: vector(n_nodes)
+  integer                :: q, n
+
+  n = size(lmatrix%matrix(1, :))
+
+  vector = 0.0
+  do q = 1, n
+      vector(lmatrix%matrix(:, q)) = vector(lmatrix%matrix(:, q)) + elemvec(:)
+  end do
+end function globalvector
+
+
 subroutine dealloc_shapefunctions()
 ! deallocate the shape functions
   deallocate(func%phi, func%dphi)

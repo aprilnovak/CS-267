@@ -200,7 +200,7 @@ BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
 
 LMfine = locationmatrix(dd(rank + 1)%n_el, dd(rank + 1)%n_nodes)
-rglob  = globalload(LMfine%matrix, rel, dd(rank + 1)%n_el, dd(rank + 1)%n_nodes)      
+rglob  = globalvector(LMfine, rel, dd(rank + 1)%n_nodes)
 rows   = form_csr(LMfine, dd(rank + 1)%n_nodes)
 
 ! initial guess is a straight line between the two endpoints
@@ -293,20 +293,6 @@ call dealloc_quadset()
 
 
 CONTAINS ! define all internal procedures
-
-function globalload(LM, rel, n_el, n_nodes)
-  integer, intent(in)    :: LM(:, :)
-  real(8), intent(in)    :: rel(:)
-  integer, intent(in)    :: n_el, n_nodes
-  real(8)                :: globalload(n_nodes)
-  integer                :: q
-
-  globalload = 0.0
-  do q = 1, n_el
-      globalload(LM(:, q)) = globalload(LM(:, q)) + rel(:)
-  end do
-end function globalload
-
 
 subroutine conjugategradient(rows, a, rglob, BCs, reltol)
   real(8), intent(inout) :: a(:)          ! resultant vector
