@@ -62,7 +62,6 @@ integer                               :: rank        ! processor rank
 integer                               :: ddcnt       ! DD counter
 real(8)                               :: itererror   ! whole-loop iter error
 integer                               :: ierr        ! error for MPI calls
-!real(8), dimension(:),    allocatable :: xel         ! coordinates in domain
 real(8), dimension(:),    allocatable :: rglob       ! global load vector
 real(8), dimension(:),    allocatable :: a           ! CG solution iterates
 integer, dimension(mpi_status_size)   :: stat        ! MPI send/receive status
@@ -162,7 +161,7 @@ if (rank == 0) then
   rglobcoarse(BCs(1)) = BCvals(1)
   rglobcoarse(BCs(2)) = BCvals(2)   
 
-  rowscoarse = form_csr(LMcoarse%matrix, LMcoarse%cnt, n_nodes)
+  rowscoarse = form_csr(LMcoarse, n_nodes)
 
   ! initial guess is a straight line between the two endpoints
   m = (rightBC - leftBC) / global%length
@@ -186,19 +185,16 @@ end if
 call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
 
 ! Specify the domain decomposition parameters for each domain -----------------
-!n_el    = domains%elems(rank + 1)
-!n_nodes = domains%numnodes(rank + 1)
 
 call allocateDDdata()
 
-!xel       = global%x(domains%edges(1, rank + 1):domains%edges(2, rank + 1))
 BCs       = (/1, dd(rank + 1)%n_nodes/)
 BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
 
 LMfine = locationmatrix(dd(rank + 1)%n_el, dd(rank + 1)%n_nodes)
 rglob = globalload(LMfine%matrix, rel, dd(rank + 1)%n_el, dd(rank + 1)%n_nodes)      
-rows = form_csr(LMfine%matrix, LMfine%cnt, dd(rank + 1)%n_nodes)
+rows = form_csr(LMfine, dd(rank + 1)%n_nodes)
 
 ! initial guess is a straight line between the two endpoints
 m = (BCvals(2) - BCvals(1)) / (dd(rank + 1)%x(n_nodes) - dd(rank + 1)%x(1))
@@ -277,7 +273,6 @@ end if
 ! deallocate memory -----------------------------------------------------------
 deallocate(LMfine%matrix, LMfine%cnt, rglob, a, z, res)
 deallocate(BCcoarse)
-!deallocate(numnodes, elems, edges, recv_displs, BCcoarse)
 deallocate(rows)
 if (rank == 0) deallocate(soln)
 
@@ -311,8 +306,6 @@ end subroutine allocatecoarse
 
 subroutine allocateDDdata()
   implicit none
-!  allocate(xel(dd(rank + 1)%n_nodes), stat = AllocateStatus)
-!  if (AllocateStatus /= 0) STOP "Allocation of xel array failed."
   allocate(rglob(dd(rank + 1)%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
   allocate(a(dd(rank + 1)%n_nodes), stat = AllocateStatus)
