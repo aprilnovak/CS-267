@@ -23,6 +23,7 @@ end type geom
 
 type(decomp), save :: domains   ! holds domain decomposition information
 type(geom),   save :: global    ! holds global mesh information
+type(geom),   save :: coarse    ! holds coarse mesh information
 type(geom), allocatable,  save :: dd(:)        ! holds domain decomposition information
 
 integer, private :: AllocateStatus
@@ -41,6 +42,12 @@ subroutine initialize_global_mesh()
     global%x(i) = real(i - 1) * global%h
   end do
 end subroutine initialize_global_mesh
+
+
+subroutine initialize_coarse_mesh()
+  coarse%n_el = size(dd)
+  coarse%n_nodes = coarse%n_el + 1
+end subroutine initialize_coarse_mesh
 
 
 function locationmatrix(n_el, n_nodes) result(lmatrix)

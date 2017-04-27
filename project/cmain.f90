@@ -46,13 +46,9 @@ integer, dimension(2)                 :: BCs            ! BC nodes
 real(8), dimension(:),    allocatable :: soln           ! global soln vector
 
 ! variables to define the CG solver
-integer                            :: cnt         ! number of CG iterations
-real(8)                            :: convergence ! difference b/w CG iterations
 real(8)                            :: m           ! slope of line
 
 ! variables to define the local problem
-integer                               :: n_el        ! number of local elements
-integer                               :: n_nodes     ! number of (local) nodes
 integer                               :: numprocs    ! number of processors
 integer                               :: rank        ! processor rank
 integer                               :: ddcnt       ! DD counter
@@ -130,32 +126,31 @@ call initialize_domain_decomposition(numprocs)
 ! perform a coarse solution to get initial guesses for the interface values
 ! this only needs to be performed by the rank 0 process
 if (rank == 0) then
-  n_el    = numprocs
-  n_nodes = numprocs + 1
+  call initialize_coarse_mesh()
   
-  allocate(xcoarse(n_nodes), stat = AllocateStatus)
+  allocate(xcoarse(coarse%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of xcoarse array failed."
-  allocate(hlocal(n_el), stat = AllocateStatus)
+  allocate(hlocal(coarse%n_el), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of hlocal array failed."
-  allocate(rglobcoarse(n_nodes), stat = AllocateStatus)
+  allocate(rglobcoarse(coarse%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of rglobcoarse array failed."
-  allocate(acoarse(n_nodes), stat = AllocateStatus)
+  allocate(acoarse(coarse%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of acoarse array failed."
 
   xcoarse(1) = global%x(domains%edges(1, 1))
-  do i = 2, n_nodes
+  do i = 2, coarse%n_nodes
     xcoarse(i) = global%x(domains%edges(2, i - 1))
     hlocal(i - 1) = xcoarse(i) - xcoarse(i - 1)
   end do
 
-  BCs    = (/ 1, n_nodes /) 
+  BCs    = (/ 1, coarse%n_nodes /) 
   BCvals = (/ leftBC, rightBC /)
 
-  LMcoarse = locationmatrix(n_el, n_nodes)
+  LMcoarse = locationmatrix(coarse%n_el, coarse%n_nodes)
 
   ! form the global load vector
   rglobcoarse = 0.0
-  do q = 1, n_el
+  do q = 1, coarse%n_el
     do i = 1, 2
       rglobcoarse(LMcoarse%matrix(i, q)) = rglobcoarse(LMcoarse%matrix(i, q)) &
                                     + hlocal(q) * hlocal(q) * rel(i) / (global%h * global%h)
@@ -164,7 +159,7 @@ if (rank == 0) then
   rglobcoarse(BCs(1)) = BCvals(1)
   rglobcoarse(BCs(2)) = BCvals(2)   
 
-  rowscoarse = form_csr(LMcoarse, n_nodes)
+  rowscoarse = form_csr(LMcoarse, coarse%n_nodes)
 
   ! initial guess is a straight line between the two endpoints
   m = (rightBC - leftBC) / global%length
@@ -174,7 +169,7 @@ if (rank == 0) then
   
   ! insert first-guess BCs into BCcoarse array, then broadcast to all processes
   BCcoarse(1, 1) = acoarse(1)
-  BCcoarse(2, numprocs) = acoarse(n_nodes)
+  BCcoarse(2, numprocs) = acoarse(coarse%n_nodes)
 
   do i = 1, numprocs - 1
     BCcoarse(2, i) = acoarse(i + 1)
@@ -204,7 +199,7 @@ rglob  = globalvector(LMfine, rel, dd(rank + 1)%n_nodes)
 rows   = form_csr(LMfine, dd(rank + 1)%n_nodes)
 
 ! initial guess is a straight line between the two endpoints
-m = (BCvals(2) - BCvals(1)) / (dd(rank + 1)%x(n_nodes) - dd(rank + 1)%x(1))
+m = (BCvals(2) - BCvals(1)) / (dd(rank + 1)%x(dd(rank + 1)%n_nodes) - dd(rank + 1)%x(1))
 a = m * (dd(rank + 1)%x - dd(rank + 1)%x(1)) + BCvals(1)
 
 itererror = 1
@@ -303,7 +298,7 @@ subroutine conjugategradient(rows, a, rglob, BCs, reltol)
 
   ! local variables
   real(8) :: z(size(a)), res(size(a))
-  real(8) :: lambda, theta, internal, tol
+  real(8) :: lambda, theta, internal, tol, conv
   integer :: cnt, n
   
   n = size(a)
@@ -327,23 +322,23 @@ subroutine conjugategradient(rows, a, rglob, BCs, reltol)
 
   a           = a + lambda * z
   res         = rglob - csr_mult(rows, a, BCs)
-  convergence = 0.0
+  conv = 0.0
  
   do i = 1, n
-    convergence = convergence + abs(res(i))
+    conv = conv + abs(res(i))
   end do
 
   cnt = 0
-  do while (convergence > tol)
+  do while (conv > tol)
     theta       = dotprod(csr_mult(rows, z, BCs), res) / dotprod(csr_mult(rows, z, BCs), z)
     z           = res - theta * z
     lambda      = dotprod(z, res) / dotprod(csr_mult(rows, z, BCs), z)
     a           = a + lambda * z
     res         = rglob - csr_mult(rows, a, BCs)
-    convergence = 0.0
+    conv = 0.0
     
     do i = 1, n
-      convergence = convergence + abs(res(i))
+      conv = conv + abs(res(i))
     end do
     
   cnt = cnt + 1
