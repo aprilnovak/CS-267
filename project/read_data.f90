@@ -9,6 +9,7 @@ real(8), save :: k           ! thermal conductivity
 real(8), save :: source      ! heat source
 real(8), save :: reltol      ! CG relative convergence tolerance
 real(8), save :: ddtol       ! DD convergence tolerance
+integer, save :: pretend_procs ! fake number of processes to simulate same IC
 
 contains
 
@@ -31,6 +32,8 @@ subroutine read_commandline()
         read(args, *) leftBC
       case(4)
         read(args, *) rightBC
+      case(5)
+        read(args, *) pretend_procs
       case default
         write(*,*) "Too many command line parameters."
     end select
