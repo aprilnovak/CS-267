@@ -99,6 +99,9 @@ call initialize_domain_decomposition(numprocs)
 if (rank == 0) then
   call initialize_coarse_mesh()
   
+  allocate(rowscoarse(coarse%n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
+  
   allocate(hlocal(coarse%n_el), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of hlocal array failed."
 
@@ -112,7 +115,7 @@ if (rank == 0) then
   coarse%rglob(coarse%BCs(1)) = coarse%BCvals(1)
   coarse%rglob(coarse%BCs(2)) = coarse%BCvals(2)   
 
-  rowscoarse = form_csr(LMcoarse, coarse%n_nodes)
+  call form_csr(LMcoarse, coarse%n_nodes, rowscoarse)
 
   ! initial guess for CG is a straight line between the two endpoints
   coarse%a = straightline(coarse)
@@ -136,7 +139,7 @@ dd(rank + 1)%BCvals(2) = BCcoarse(2, rank + 1)
 
 LMfine = locationmatrix(dd(rank + 1)%n_el, dd(rank + 1)%n_nodes)
 dd(rank + 1)%rglob  = globalvector(LMfine, rel, dd(rank + 1)%n_nodes)
-rows   = form_csr(LMfine, dd(rank + 1)%n_nodes)
+call form_csr(LMfine, dd(rank + 1)%n_nodes, rows)
 
 ! initial guess is a straight line between the two endpoints
 dd(rank + 1)%a = straightline(dd(rank + 1))
@@ -218,7 +221,7 @@ end if
 ! deallocate memory -----------------------------------------------------------
 deallocate(LMfine%matrix, LMfine%cnt, BCcoarse, rows)
 
-if (rank == 0)
+if (rank == 0) then
   deallocate(soln)
   deallocate(LMcoarse%matrix, LMcoarse%cnt, hlocal, rowscoarse)  
   call dealloc_coarse_mesh()

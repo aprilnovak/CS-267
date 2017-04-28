@@ -15,16 +15,16 @@ integer, private :: AllocateStatus
 
 contains
 
-function form_csr(l, n_nodes) result(rows)
+subroutine form_csr(l, n_nodes, rows)
   use mesh, only: LM
   type(LM), intent(in)     :: l
+  type(row), intent(inout) :: rows(:)
   integer, intent(in)      :: n_nodes
  
-  type(row), allocatable :: rows(:)
   integer   :: i, j, q, n_el
  
-  allocate(rows(n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
+!  allocate(rows(n_nodes), stat = AllocateStatus)
+!  if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 
   n_el    = size(l%matrix(1, :))
  
@@ -48,7 +48,7 @@ function form_csr(l, n_nodes) result(rows)
       end do
     end do
   end do
-end function form_csr
+end subroutine form_csr
 
 
 end module csr_storage
