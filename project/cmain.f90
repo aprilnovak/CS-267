@@ -58,7 +58,6 @@ real(8), dimension(:),    allocatable :: a           ! CG solution iterates
 integer, dimension(mpi_status_size)   :: stat        ! MPI send/receive status
 real(8), dimension(2)                 :: prev        ! prev interface values
 real(8), dimension(2)                 :: BClocals    ! BCs for each interface
-real(8), dimension(2)                 :: BCvals      ! BCs for each domain
 
 ! variables to define the coarse-mesh solution
 real(8), dimension(:),    allocatable :: hlocal        ! coarse element lengths
@@ -133,19 +132,17 @@ if (rank == 0) then
     hlocal(i - 1) = coarse%x(i) - coarse%x(i - 1)
   end do
 
-  BCvals = (/ leftBC, rightBC /)
-
   LMcoarse = locationmatrix(coarse%n_el, coarse%n_nodes)
   rglobcoarse = globalvector(LMcoarse, rel, coarse%n_nodes, hlocal)
   
-  rglobcoarse(coarse%BCs(1)) = BCvals(1)
-  rglobcoarse(coarse%BCs(2)) = BCvals(2)   
+  rglobcoarse(coarse%BCs(1)) = coarse%BCvals(1)
+  rglobcoarse(coarse%BCs(2)) = coarse%BCvals(2)   
 
   rowscoarse = form_csr(LMcoarse, coarse%n_nodes)
 
   ! initial guess is a straight line between the two endpoints
   m = (rightBC - leftBC) / global%length
-  acoarse = m * (coarse%x - coarse%x(1)) + BCvals(1)
+  acoarse = m * (coarse%x - coarse%x(1)) + coarse%BCvals(1)
 
   call conjugategradient(rowscoarse, acoarse, rglobcoarse, coarse%BCs, reltol = reltol)
   
@@ -172,26 +169,27 @@ if (AllocateStatus /= 0) STOP "Allocation of a array failed."
 allocate(rows(dd(rank + 1)%n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 
-BCvals(1) = BCcoarse(1, rank + 1)
-BCvals(2) = BCcoarse(2, rank + 1)
+dd(rank + 1)%BCvals(1) = BCcoarse(1, rank + 1)
+dd(rank + 1)%BCvals(2) = BCcoarse(2, rank + 1)
 
 LMfine = locationmatrix(dd(rank + 1)%n_el, dd(rank + 1)%n_nodes)
 rglob  = globalvector(LMfine, rel, dd(rank + 1)%n_nodes)
 rows   = form_csr(LMfine, dd(rank + 1)%n_nodes)
 
 ! initial guess is a straight line between the two endpoints
-m = (BCvals(2) - BCvals(1)) / (dd(rank + 1)%x(dd(rank + 1)%n_nodes) - dd(rank + 1)%x(1))
-a = m * (dd(rank + 1)%x - dd(rank + 1)%x(1)) + BCvals(1)
+m = (dd(rank + 1)%BCvals(2) - dd(rank + 1)%BCvals(1)) / &
+     (dd(rank + 1)%x(dd(rank + 1)%n_nodes) - dd(rank + 1)%x(1))
+a = m * (dd(rank + 1)%x - dd(rank + 1)%x(1)) + dd(rank + 1)%BCvals(1)
 
 itererror = 1
 ddcnt     = 0
 do while (itererror > ddtol)
   ! save the previous values of the interface BCs
-  prev = BCvals
+  prev = dd(rank + 1)%BCvals
 
   ! each processor solves for its domain --------------------------------------
-  rglob(dd(rank + 1)%BCs(1)) = BCvals(1)
-  rglob(dd(rank + 1)%BCs(2)) = BCvals(2)   
+  rglob(dd(rank + 1)%BCs(1)) = dd(rank + 1)%BCvals(1)
+  rglob(dd(rank + 1)%BCs(2)) = dd(rank + 1)%BCvals(2)   
   
   call conjugategradient(rows, a, rglob, dd(rank + 1)%BCs, reltol = reltol)
   
@@ -211,21 +209,21 @@ do while (itererror > ddtol)
 
   ! each processor solves its interface problem -------------------------------
   if (rank /= 0) then
-    BCvals(1) = (rel(2) + rel(1) - kel(2, 1) * BClocals(2) &
+    dd(rank + 1)%BCvals(1) = (rel(2) + rel(1) - kel(2, 1) * BClocals(2) &
                       - kel(1, 2) * BClocals(1)) / (kel(2, 2) + kel(1, 1))
     ! send new interface result to rank - 1 process (to BCvals(2) of rank - 1)
-    call mpi_send(BCvals(1), 1, mpi_real8, rank - 1, rank, mpi_comm_world, ierr)
+    call mpi_send(dd(rank + 1)%BCvals(1), 1, mpi_real8, rank - 1, rank, mpi_comm_world, ierr)
   end if
 
   ! rank - 1 process receives from the process to the right -------------------
   if (rank /= numprocs - 1) then
-    call mpi_recv(BCvals(2), 1, mpi_real8, rank + 1, rank + 1, mpi_comm_world, stat, ierr)
+    call mpi_recv(dd(rank + 1)%BCvals(2), 1, mpi_real8, rank + 1, rank + 1, mpi_comm_world, stat, ierr)
   end if
 
   ! compute iteration error to determine whether to continue looping ---------- 
   call mpi_barrier(mpi_comm_world, ierr)
 
-  call mpi_allreduce(abs(BCvals(2) - prev(2) + BCvals(1) - prev(1)), itererror,&
+  call mpi_allreduce(abs(dd(rank + 1)%BCvals(2) - prev(2) + dd(rank + 1)%BCvals(1) - prev(1)), itererror,&
                      1, mpi_real8, mpi_sum, mpi_comm_world, ierr)  
  
   call mpi_barrier(mpi_comm_world, ierr)
@@ -285,11 +283,7 @@ subroutine conjugategradient(rows, a, rglob, BCs, reltol)
   n = size(a)
 
   res         = rglob - csr_mult(rows, a, BCs)
-
-  internal = 0.0
-  do i = 1, n
-    internal = internal + abs(res(i))
-  end do
+  internal    = sum(abs(res))
   
   ! set relative tolerance for convergence, using 0.001 as default
   if (present(reltol)) then
@@ -298,29 +292,21 @@ subroutine conjugategradient(rows, a, rglob, BCs, reltol)
     tol = 0.001 * internal
   end if
 
-  z           = res
-  lambda      = dotprod(z, res) / dotprod(csr_mult(rows, z, BCs), z)
+  z      = res
+  lambda = dotprod(z, res) / dotprod(csr_mult(rows, z, BCs), z)
 
-  a           = a + lambda * z
-  res         = rglob - csr_mult(rows, a, BCs)
-  conv = 0.0
+  a      = a + lambda * z
+  res    = rglob - csr_mult(rows, a, BCs)
+  conv   = sum(abs(res))
  
-  do i = 1, n
-    conv = conv + abs(res(i))
-  end do
-
   cnt = 0
   do while (conv > tol)
-    theta       = dotprod(csr_mult(rows, z, BCs), res) / dotprod(csr_mult(rows, z, BCs), z)
-    z           = res - theta * z
-    lambda      = dotprod(z, res) / dotprod(csr_mult(rows, z, BCs), z)
-    a           = a + lambda * z
-    res         = rglob - csr_mult(rows, a, BCs)
-    conv = 0.0
-    
-    do i = 1, n
-      conv = conv + abs(res(i))
-    end do
+    theta  = dotprod(csr_mult(rows, z, BCs), res) / dotprod(csr_mult(rows, z, BCs), z)
+    z      = res - theta * z
+    lambda = dotprod(z, res) / dotprod(csr_mult(rows, z, BCs), z)
+    a      = a + lambda * z
+    res    = rglob - csr_mult(rows, a, BCs)
+    conv   = sum(abs(res))
     
   cnt = cnt + 1
   end do

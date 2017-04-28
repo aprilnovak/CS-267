@@ -104,7 +104,6 @@ subroutine initialize_domain_decomposition(numprocs)
   allocate(dd(numprocs), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocate of dd array failed."
  
-
   mx = (global%n_el + numprocs - 1) / numprocs
   
   do i = 1, numprocs
