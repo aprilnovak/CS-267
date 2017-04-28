@@ -17,6 +17,7 @@ type geom
   integer :: n_nodes
   integer :: n_el
   integer :: BCs(2)
+  real(8) :: BCvals(2)
   real(8) :: length
   real(8) :: h
   real, allocatable :: x(:) 
@@ -32,6 +33,7 @@ integer, private :: AllocateStatus
 contains
 
 subroutine initialize_global_mesh()
+  use read_data, only: leftBC, rightBC
   integer :: i
   global%h = global%length / real(global%n_el)
   global%n_nodes = global%n_el + 1
@@ -42,13 +44,25 @@ subroutine initialize_global_mesh()
   do i = 1, global%n_nodes
     global%x(i) = real(i - 1) * global%h
   end do
+
+  global%BCvals = (/leftBC, rightBC/)
 end subroutine initialize_global_mesh
 
 
 subroutine initialize_coarse_mesh()
+  integer :: i
   coarse%n_el = size(dd)
   coarse%n_nodes = coarse%n_el + 1
   coarse%BCs = (/ 1, coarse%n_nodes /)
+  coarse%BCvals = global%BCvals
+
+  allocate(coarse%x(coarse%n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of coarse%x array failed."
+
+  coarse%x(1) = global%x(domains%edges(1, 1))
+  do i = 2, coarse%n_nodes
+    coarse%x(i) = global%x(domains%edges(2, i - 1))
+  end do
 end subroutine initialize_coarse_mesh
 
 
@@ -137,6 +151,10 @@ end subroutine initialize_domain_decomposition
 subroutine dealloc_global_mesh()
   deallocate(global%x)
 end subroutine dealloc_global_mesh
+
+subroutine dealloc_coarse_mesh()
+  deallocate(coarse%x)
+end subroutine dealloc_coarse_mesh
 
 subroutine dealloc_domains()
   deallocate(domains%elems, domains%edges, domains%recv_displs)

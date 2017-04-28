@@ -42,7 +42,6 @@ real(8)  :: startCSR           ! start CSR time
 real(8)  :: endCSR             ! end CSR time
 
 ! variables to define the global problem
-!integer, dimension(2)                 :: BCs            ! BC nodes
 real(8), dimension(:),    allocatable :: soln           ! global soln vector
 
 ! variables to define the CG solver
@@ -64,7 +63,6 @@ real(8), dimension(2)                 :: BCvals      ! BCs for each domain
 ! variables to define the coarse-mesh solution
 real(8), dimension(:),    allocatable :: hlocal        ! coarse element lengths
 real(8), dimension(:),    allocatable :: rglobcoarse   ! global load vector
-real(8), dimension(:),    allocatable :: xcoarse       ! coords of shared nodes
 real(8), dimension(:),    allocatable :: acoarse       ! coarse-mesh solution
 real(8), dimension(:, :), allocatable :: BCcoarse      ! coarse solution BCs
 
@@ -124,8 +122,6 @@ call initialize_domain_decomposition(numprocs)
 if (rank == 0) then
   call initialize_coarse_mesh()
   
-  allocate(xcoarse(coarse%n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of xcoarse array failed."
   allocate(hlocal(coarse%n_el), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of hlocal array failed."
   allocate(rglobcoarse(coarse%n_nodes), stat = AllocateStatus)
@@ -133,13 +129,10 @@ if (rank == 0) then
   allocate(acoarse(coarse%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of acoarse array failed."
 
-  xcoarse(1) = global%x(domains%edges(1, 1))
   do i = 2, coarse%n_nodes
-    xcoarse(i) = global%x(domains%edges(2, i - 1))
-    hlocal(i - 1) = xcoarse(i) - xcoarse(i - 1)
+    hlocal(i - 1) = coarse%x(i) - coarse%x(i - 1)
   end do
 
-  !BCs    = (/ 1, coarse%n_nodes /) 
   BCvals = (/ leftBC, rightBC /)
 
   LMcoarse = locationmatrix(coarse%n_el, coarse%n_nodes)
@@ -152,7 +145,7 @@ if (rank == 0) then
 
   ! initial guess is a straight line between the two endpoints
   m = (rightBC - leftBC) / global%length
-  acoarse = m * (xcoarse - xcoarse(1)) + BCvals(1)
+  acoarse = m * (coarse%x - coarse%x(1)) + BCvals(1)
 
   call conjugategradient(rowscoarse, acoarse, rglobcoarse, coarse%BCs, reltol = reltol)
   
@@ -165,7 +158,7 @@ if (rank == 0) then
     BCcoarse(1, i + 1) = acoarse(i + 1)
   end do
 
-  deallocate(xcoarse, LMcoarse%matrix, LMcoarse%cnt, rglobcoarse, acoarse, hlocal)  
+  deallocate(LMcoarse%matrix, LMcoarse%cnt, rglobcoarse, acoarse, hlocal)  
   deallocate(rowscoarse)
 end if
 
@@ -179,7 +172,6 @@ if (AllocateStatus /= 0) STOP "Allocation of a array failed."
 allocate(rows(dd(rank + 1)%n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 
-!BCs       = (/1, dd(rank + 1)%n_nodes/)
 BCvals(1) = BCcoarse(1, rank + 1)
 BCvals(2) = BCcoarse(2, rank + 1)
 
