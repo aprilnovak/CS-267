@@ -102,7 +102,6 @@ function conjugategradient(rows, guess, rglob, BCs, reltol) result(a)
 
   cnt = cnt + 1
   end do
-  print *, 'CG count: ', cnt
 end function conjugategradient
 
 
