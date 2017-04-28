@@ -31,7 +31,7 @@ real(8)  :: startCSR           ! start CSR time
 real(8)  :: endCSR             ! end CSR time
 
 ! variables to define the global problem
-real(8), dimension(:),    allocatable :: soln        ! global soln vector
+!real(8), dimension(:),    allocatable :: soln        ! global soln vector
 integer                               :: numprocs    ! number of processors
 integer                               :: rank        ! processor rank
 integer                               :: ddcnt       ! DD counter
@@ -84,9 +84,8 @@ call mpi_comm_rank(mpi_comm_world, rank, ierr)
 
 ! only the rank 0 process knows about the whole solution vector
 if (rank == 0) then
-  allocate(soln(global%n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of soln array failed."
-  soln = 0.0
+  allocate(global%a(global%n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of global%a array failed."
 end if
 
 allocate(BCcoarse(2, numprocs), stat = AllocateStatus)
@@ -197,18 +196,18 @@ end do ! ends outermost domain decomposition loop
 
 ! each processor broadcasts its final solution to the rank 0 process ----------
 call mpi_gatherv(dd(rank + 1)%a(1:(dd(rank + 1)%n_nodes - 1)), dd(rank + 1)%n_nodes - 1, mpi_real8, &
-                 soln(1:(global%n_nodes - 1)), domains%elems, domains%recv_displs, mpi_real8, &
+                 global%a(1:(global%n_nodes - 1)), domains%elems, domains%recv_displs, mpi_real8, &
                  0, mpi_comm_world, ierr)
 
 ! write results to output file ------------------------------------------------
 !if (.false.) then
 if (rank == 0) then
-  soln(global%n_nodes) = rightBC 
+  global%a(global%n_nodes) = rightBC 
   ! write to an output file. If this file exists, it will be re-written.
   open(1, file='output.txt', iostat=AllocateStatus, status="replace")
   if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 
-  write(1, *) numprocs, global%n_el, ddcnt, soln
+  write(1, *) numprocs, global%n_el, ddcnt, global%a
 end if
 !end if
 
@@ -222,7 +221,7 @@ end if
 deallocate(LMfine%matrix, LMfine%cnt, BCcoarse, rows)
 
 if (rank == 0) then
-  deallocate(soln)
+  deallocate(global%a)
   deallocate(LMcoarse%matrix, LMcoarse%cnt, hlocal, rowscoarse)  
   call dealloc_coarse_mesh()
 end if

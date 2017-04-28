@@ -42,10 +42,6 @@ subroutine initialize_global_mesh()
  
   allocate(global%x(global%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of global%x array failed."
-  allocate(global%rglob(global%n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of global%rglob array failed."
-  allocate(global%a(global%n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of global%a array failed."
  
   do i = 1, global%n_nodes
     global%x(i) = real(i - 1) * global%h
@@ -161,7 +157,7 @@ end subroutine initialize_domain_decomposition
 
 
 subroutine dealloc_global_mesh()
-  deallocate(global%x, global%a, global%rglob)
+  deallocate(global%x)
 end subroutine dealloc_global_mesh
 
 subroutine dealloc_coarse_mesh()
