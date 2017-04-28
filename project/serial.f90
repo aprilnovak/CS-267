@@ -23,6 +23,7 @@ real(8)  :: startCG            ! start CG time
 real(8)  :: endCG              ! end CG time
 real(8)  :: startCSR           ! start CSR time
 real(8)  :: endCSR             ! end CSR time
+real(8) :: m
 
 ! variables to define the global problem
 real(8), dimension(:),    allocatable :: soln        ! global soln vector
@@ -67,8 +68,6 @@ allocate(BCcoarse(2, pretend_procs), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of BCcoarse array failed."
 
 call initialize_domain_decomposition(pretend_procs)
-
-! perform a coarse solution to get initial guesses for the interface values
 call initialize_coarse_mesh()
 
 allocate(hlocal(coarse%n_el), stat = AllocateStatus)
@@ -96,7 +95,17 @@ do i = 1, pretend_procs
 end do
 
 print *, BCcoarse
-! Specify the domain decomposition parameters for each domain -----------------
+
+! give initial guess for the solution
+do i = 1, pretend_procs
+  m = (BCcoarse(2, i) - BCcoarse(1, i)) / (coarse%x(i + 1) - coarse%x(i)) 
+!  print *, 'slope: ', m
+!  print *, 'edges: ', domains%edges(1, i), 'right: ', (domains%edges(2, i))
+  soln(domains%edges(1, i):(domains%edges(2, i) - 1)) = m * (global%x(domains%edges(1, i):(domains%edges(2, i) - 1)) - global%x(domains%edges(1, i))) + BCcoarse(1, i)
+!  print *, 'solution: ', soln
+end do
+
+
 !allocate(rows(dd(rank + 1)%n_nodes), stat = AllocateStatus)
 !if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 !
@@ -166,12 +175,12 @@ print *, BCcoarse
 !
 ! write results to output file ------------------------------------------------
 !if (.false.) then
-  soln(global%n_nodes) = rightBC 
-  ! write to an output file. If this file exists, it will be re-written.
-  open(1, file='output.txt', iostat=AllocateStatus, status="replace")
-  if (AllocateStatus /= 0) STOP "output.txt file opening failed."
+soln(global%n_nodes) = rightBC 
+! write to an output file. If this file exists, it will be re-written.
+open(1, file='output.txt', iostat=AllocateStatus, status="replace")
+if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 
-  write(1, *) pretend_procs, global%n_el, 0, soln
+write(1, *) pretend_procs, global%n_el, 0, soln
 !end if
 
 ! final timing results --------------------------------------------------------
