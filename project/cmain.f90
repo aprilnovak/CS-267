@@ -64,7 +64,7 @@ real(8), dimension(:, :), allocatable :: BCcoarse      ! coarse solution BCs
 
 ! variables to define OpenMP thread parallelism
 integer :: provided   ! holds provided level of thread support
-integer :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
+integer, external :: omp_get_thread_num, omp_get_num_threads ! OpenMP routines
 
 type(row), allocatable, dimension(:) :: rows       ! rows in global K
 type(row), allocatable, dimension(:) :: rowscoarse ! rows in coarse global K
@@ -140,7 +140,6 @@ if (rank == 0) then
   ! initial guess for CG is a straight line between the two endpoints
   acoarse = straightline(coarse)
   acoarse = conjugategradient(rowscoarse, acoarse, rglobcoarse, coarse%BCs, reltol)
-!  call conjugategradient(rowscoarse, acoarse, rglobcoarse, coarse%BCs, reltol = reltol)
   
   ! insert first-guess BCs into BCcoarse array, then broadcast to all processes
   do i = 1, numprocs
