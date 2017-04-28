@@ -119,10 +119,6 @@ subroutine initialize_domain_decomposition(numprocs)
     i = i + 1
     if (i == numprocs + 1) i = 1
   end do
- 
-  do i = 1, numprocs
-    dd(i)%n_nodes = dd(i)%n_el + 1
-  end do 
 
   domains%edges(:, 1) = (/1, domains%elems(1) + 1/)
   do i = 2, numprocs
@@ -131,15 +127,16 @@ subroutine initialize_domain_decomposition(numprocs)
   end do
   
   do i = 1, numprocs
+    dd(i)%n_nodes = dd(i)%n_el + 1
+    
     allocate(dd(i)%x(dd(i)%n_nodes), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocate of dd(i)%x array failed."
     dd(i)%x = global%x(domains%edges(1, i):domains%edges(2, i))
+
+    dd(i)%length = dd(i)%x(dd(i)%n_nodes) - dd(i)%x(1)   
+    dd(i)%BCs = (/1, dd(i)%n_nodes /)
   end do
 
-  do i = 1, numprocs
-    dd(i)%BCs = (/1, dd(i)%n_nodes /)
-  end do 
- 
   domains%recv_displs = 0
   do i = 2, numprocs
     domains%recv_displs(i) = domains%recv_displs(i - 1) + domains%elems(i - 1)

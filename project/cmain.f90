@@ -172,9 +172,7 @@ rglob  = globalvector(LMfine, rel, dd(rank + 1)%n_nodes)
 rows   = form_csr(LMfine, dd(rank + 1)%n_nodes)
 
 ! initial guess is a straight line between the two endpoints
-m = (dd(rank + 1)%BCvals(2) - dd(rank + 1)%BCvals(1)) / &
-     (dd(rank + 1)%x(dd(rank + 1)%n_nodes) - dd(rank + 1)%x(1))
-a = m * (dd(rank + 1)%x - dd(rank + 1)%x(1)) + dd(rank + 1)%BCvals(1)
+a = straightline(dd(rank + 1))
 
 itererror = 1
 ddcnt     = 0
