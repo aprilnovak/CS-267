@@ -20,7 +20,9 @@ type geom
   real(8) :: BCvals(2)
   real(8) :: length
   real(8) :: h
-  real, allocatable :: x(:) 
+  real(8), allocatable :: x(:)
+  real(8), allocatable :: a(:)
+  real(8), allocatable :: rglob(:) 
 end type geom
 
 type(decomp), save :: domains   ! holds domain decomposition information
@@ -58,6 +60,10 @@ subroutine initialize_coarse_mesh()
 
   allocate(coarse%x(coarse%n_nodes), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of coarse%x array failed."
+  allocate(coarse%rglob(coarse%n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
+  allocate(coarse%a(coarse%n_nodes), stat = AllocateStatus)
+  if (AllocateStatus /= 0) STOP "Allocation of a array failed."
 
   coarse%x(1) = global%x(domains%edges(1, 1))
   do i = 2, coarse%n_nodes
@@ -131,6 +137,11 @@ subroutine initialize_domain_decomposition(numprocs)
     
     allocate(dd(i)%x(dd(i)%n_nodes), stat = AllocateStatus)
     if (AllocateStatus /= 0) STOP "Allocate of dd(i)%x array failed."
+    allocate(dd(i)%rglob(dd(i)%n_nodes), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
+    allocate(dd(i)%a(dd(i)%n_nodes), stat = AllocateStatus)
+    if (AllocateStatus /= 0) STOP "Allocation of a array failed."
+  
     dd(i)%x = global%x(domains%edges(1, i):domains%edges(2, i))
 
     dd(i)%length = dd(i)%x(dd(i)%n_nodes) - dd(i)%x(1)   
@@ -149,7 +160,7 @@ subroutine dealloc_global_mesh()
 end subroutine dealloc_global_mesh
 
 subroutine dealloc_coarse_mesh()
-  deallocate(coarse%x)
+  deallocate(coarse%x, coarse%a, coarse%rglob)
 end subroutine dealloc_coarse_mesh
 
 subroutine dealloc_domains()

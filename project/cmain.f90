@@ -10,22 +10,11 @@
 
 PROGRAM main
 
-! read input information
 use read_data
-
-! define quantities related to the mesh
 use mesh
-
-! define the quadrature rule
 use quadrature
-
-! define the elemental matrices
 use element_matrices
-
-! define the CSR matrix storage
 use csr_storage
-
-! provide interface to solvers
 use solvers
 
 implicit none
@@ -42,25 +31,17 @@ real(8)  :: startCSR           ! start CSR time
 real(8)  :: endCSR             ! end CSR time
 
 ! variables to define the global problem
-real(8), dimension(:),    allocatable :: soln           ! global soln vector
-
-! variables to define the local problem
+real(8), dimension(:),    allocatable :: soln        ! global soln vector
 integer                               :: numprocs    ! number of processors
 integer                               :: rank        ! processor rank
 integer                               :: ddcnt       ! DD counter
 real(8)                               :: itererror   ! whole-loop iter error
 integer                               :: ierr        ! error for MPI calls
-real(8), dimension(:),    allocatable :: rglob       ! global load vector
-real(8), dimension(:),    allocatable :: a           ! CG solution iterates
 integer, dimension(mpi_status_size)   :: stat        ! MPI send/receive status
 real(8), dimension(2)                 :: prev        ! prev interface values
 real(8), dimension(2)                 :: BClocals    ! BCs for each interface
-
-! variables to define the coarse-mesh solution
-real(8), dimension(:),    allocatable :: hlocal        ! coarse element lengths
-real(8), dimension(:),    allocatable :: rglobcoarse   ! global load vector
-real(8), dimension(:),    allocatable :: acoarse       ! coarse-mesh solution
-real(8), dimension(:, :), allocatable :: BCcoarse      ! coarse solution BCs
+real(8), dimension(:),    allocatable :: hlocal      ! coarse element lengths
+real(8), dimension(:, :), allocatable :: BCcoarse    ! coarse solution BCs
 
 ! variables to define OpenMP thread parallelism
 integer :: provided   ! holds provided level of thread support
@@ -120,42 +101,33 @@ if (rank == 0) then
   
   allocate(hlocal(coarse%n_el), stat = AllocateStatus)
   if (AllocateStatus /= 0) STOP "Allocation of hlocal array failed."
-  allocate(rglobcoarse(coarse%n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of rglobcoarse array failed."
-  allocate(acoarse(coarse%n_nodes), stat = AllocateStatus)
-  if (AllocateStatus /= 0) STOP "Allocation of acoarse array failed."
 
   do i = 2, coarse%n_nodes
     hlocal(i - 1) = coarse%x(i) - coarse%x(i - 1)
   end do
 
   LMcoarse = locationmatrix(coarse%n_el, coarse%n_nodes)
-  rglobcoarse = globalvector(LMcoarse, rel, coarse%n_nodes, hlocal)
+  coarse%rglob = globalvector(LMcoarse, rel, coarse%n_nodes, hlocal)
   
-  rglobcoarse(coarse%BCs(1)) = coarse%BCvals(1)
-  rglobcoarse(coarse%BCs(2)) = coarse%BCvals(2)   
+  coarse%rglob(coarse%BCs(1)) = coarse%BCvals(1)
+  coarse%rglob(coarse%BCs(2)) = coarse%BCvals(2)   
 
   rowscoarse = form_csr(LMcoarse, coarse%n_nodes)
 
   ! initial guess for CG is a straight line between the two endpoints
-  acoarse = straightline(coarse)
-  acoarse = conjugategradient(rowscoarse, acoarse, rglobcoarse, coarse%BCs, reltol)
+  coarse%a = straightline(coarse)
+  coarse%a = conjugategradient(rowscoarse, coarse%a, coarse%rglob, coarse%BCs, reltol)
   
   ! insert first-guess BCs into BCcoarse array, then broadcast to all processes
   do i = 1, numprocs
-    BCcoarse(:, i) = (/acoarse(i), acoarse(i + 1)/)
+    BCcoarse(:, i) = (/coarse%a(i), coarse%a(i + 1)/)
   end do
 
-  deallocate(LMcoarse%matrix, LMcoarse%cnt, rglobcoarse, acoarse, hlocal, rowscoarse)  
 end if
 
 call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
 
 ! Specify the domain decomposition parameters for each domain -----------------
-allocate(rglob(dd(rank + 1)%n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of rglob array failed."
-allocate(a(dd(rank + 1)%n_nodes), stat = AllocateStatus)
-if (AllocateStatus /= 0) STOP "Allocation of a array failed."
 allocate(rows(dd(rank + 1)%n_nodes), stat = AllocateStatus)
 if (AllocateStatus /= 0) STOP "Allocation of rows array failed."
 
@@ -163,11 +135,11 @@ dd(rank + 1)%BCvals(1) = BCcoarse(1, rank + 1)
 dd(rank + 1)%BCvals(2) = BCcoarse(2, rank + 1)
 
 LMfine = locationmatrix(dd(rank + 1)%n_el, dd(rank + 1)%n_nodes)
-rglob  = globalvector(LMfine, rel, dd(rank + 1)%n_nodes)
+dd(rank + 1)%rglob  = globalvector(LMfine, rel, dd(rank + 1)%n_nodes)
 rows   = form_csr(LMfine, dd(rank + 1)%n_nodes)
 
 ! initial guess is a straight line between the two endpoints
-a = straightline(dd(rank + 1))
+dd(rank + 1)%a = straightline(dd(rank + 1))
 
 itererror = 1
 ddcnt     = 0
@@ -176,21 +148,22 @@ do while (itererror > ddtol)
   prev = dd(rank + 1)%BCvals
 
   ! each processor solves for its domain --------------------------------------
-  rglob(dd(rank + 1)%BCs(1)) = dd(rank + 1)%BCvals(1)
-  rglob(dd(rank + 1)%BCs(2)) = dd(rank + 1)%BCvals(2)   
+  dd(rank + 1)%rglob(dd(rank + 1)%BCs(1)) = dd(rank + 1)%BCvals(1)
+  dd(rank + 1)%rglob(dd(rank + 1)%BCs(2)) = dd(rank + 1)%BCvals(2)   
 
-  a = conjugategradient(rows, a, rglob, dd(rank + 1)%BCs, reltol=reltol)
-!  call conjugategradient(rows, a, rglob, dd(rank + 1)%BCs, reltol = reltol)
+  dd(rank + 1)%a = conjugategradient(rows, dd(rank + 1)%a, dd(rank + 1)%rglob, &
+                                     dd(rank + 1)%BCs, reltol=reltol)
   
   ! each processor sends a boundary value to the processor to the right -------
   if (rank /= numprocs - 1) then
-    call mpi_send(a(dd(rank + 1)%n_nodes - 1), 1, mpi_real8, rank + 1, rank, mpi_comm_world, ierr)
+    call mpi_send(dd(rank + 1)%a(dd(rank + 1)%n_nodes - 1), 1, mpi_real8, &
+                  rank + 1, rank, mpi_comm_world, ierr)
   end if
 
   ! processor to the right receives the message -------------------------------
   if (rank /= 0) then
     call mpi_recv(BClocals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
-    BClocals(2) = a(2)
+    BClocals(2) = dd(rank + 1)%a(2)
   end if
 
   call mpi_barrier(mpi_comm_world, ierr)
@@ -205,25 +178,27 @@ do while (itererror > ddtol)
 
   ! rank - 1 process receives from the process to the right -------------------
   if (rank /= numprocs - 1) then
-    call mpi_recv(dd(rank + 1)%BCvals(2), 1, mpi_real8, rank + 1, rank + 1, mpi_comm_world, stat, ierr)
+    call mpi_recv(dd(rank + 1)%BCvals(2), 1, mpi_real8, rank + 1, rank + 1, &
+                  mpi_comm_world, stat, ierr)
   end if
 
   ! compute iteration error to determine whether to continue looping ---------- 
   call mpi_barrier(mpi_comm_world, ierr)
 
-  call mpi_allreduce(abs(dd(rank + 1)%BCvals(2) - prev(2) + dd(rank + 1)%BCvals(1) - prev(1)), itererror,&
-                     1, mpi_real8, mpi_sum, mpi_comm_world, ierr)  
+  call mpi_allreduce(abs(dd(rank + 1)%BCvals(2) - prev(2) + dd(rank + 1)%BCvals(1) - prev(1)),&
+                     itererror, 1, mpi_real8, mpi_sum, mpi_comm_world, ierr)  
  
   call mpi_barrier(mpi_comm_world, ierr)
   ddcnt = ddcnt + 1
 end do ! ends outermost domain decomposition loop
 
 ! each processor broadcasts its final solution to the rank 0 process ----------
-call mpi_gatherv(a(1:(dd(rank + 1)%n_nodes - 1)), dd(rank + 1)%n_nodes - 1, mpi_real8, &
+call mpi_gatherv(dd(rank + 1)%a(1:(dd(rank + 1)%n_nodes - 1)), dd(rank + 1)%n_nodes - 1, mpi_real8, &
                  soln(1:(global%n_nodes - 1)), domains%elems, domains%recv_displs, mpi_real8, &
                  0, mpi_comm_world, ierr)
 
 ! write results to output file ------------------------------------------------
+!if (.false.) then
 if (rank == 0) then
   soln(global%n_nodes) = rightBC 
   ! write to an output file. If this file exists, it will be re-written.
@@ -232,6 +207,7 @@ if (rank == 0) then
 
   write(1, *) numprocs, global%n_el, ddcnt, soln
 end if
+!end if
 
 ! final timing results --------------------------------------------------------
 if (rank == 0) then
@@ -240,11 +216,14 @@ if (rank == 0) then
 end if
 
 ! deallocate memory -----------------------------------------------------------
-deallocate(LMfine%matrix, LMfine%cnt, rglob, a)
-deallocate(BCcoarse)
-deallocate(rows)
-if (rank == 0) deallocate(soln)
+deallocate(LMfine%matrix, LMfine%cnt, BCcoarse, rows)
 
+if (rank == 0)
+  deallocate(soln)
+  deallocate(LMcoarse%matrix, LMcoarse%cnt, hlocal, rowscoarse)  
+  call dealloc_coarse_mesh()
+end if
+  
 call mpi_finalize(ierr)
 
 call dealloc_domains()
@@ -252,4 +231,4 @@ call dealloc_global_mesh()
 call dealloc_shapefunctions()
 call dealloc_quadset()
 
-END PROGRAM main
+END PROGRAM

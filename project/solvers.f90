@@ -70,7 +70,7 @@ function conjugategradient(rows, guess, rglob, BCs, reltol) result(a)
   ! local variables
   real(8) :: z(size(a)), res(size(a))
   real(8) :: lambda, theta, internal, tol, conv
-  integer :: cnt, n
+  integer :: n, cnt
 
   n = size(a)
 
@@ -102,6 +102,7 @@ function conjugategradient(rows, guess, rglob, BCs, reltol) result(a)
 
   cnt = cnt + 1
   end do
+  print *, 'CG count: ', cnt
 end function conjugategradient
 
 

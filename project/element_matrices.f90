@@ -8,6 +8,11 @@ type shapefunction
   real(8), allocatable :: dphi(:, :)
 end type shapefunction
 
+type solution
+  real(8), allocatable :: a(:)
+  real(8), allocatable :: rglob(:)
+end type solution
+
 ! elemental load vector, global variable
 real(8), save :: rel(2)
 
@@ -105,5 +110,6 @@ subroutine dealloc_shapefunctions()
 ! deallocate the shape functions
   deallocate(func%phi, func%dphi)
 end subroutine dealloc_shapefunctions
+
 
 end module element_matrices
