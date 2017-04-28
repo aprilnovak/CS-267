@@ -141,18 +141,13 @@ if (rank == 0) then
   rowscoarse = form_csr(LMcoarse, coarse%n_nodes)
 
   ! initial guess is a straight line between the two endpoints
-  m = (rightBC - leftBC) / global%length
-  acoarse = m * (coarse%x - coarse%x(1)) + coarse%BCvals(1)
+  acoarse = straightline(coarse)
 
   call conjugategradient(rowscoarse, acoarse, rglobcoarse, coarse%BCs, reltol = reltol)
   
   ! insert first-guess BCs into BCcoarse array, then broadcast to all processes
-  BCcoarse(1, 1) = acoarse(1)
-  BCcoarse(2, numprocs) = acoarse(coarse%n_nodes)
-
-  do i = 1, numprocs - 1
-    BCcoarse(2, i) = acoarse(i + 1)
-    BCcoarse(1, i + 1) = acoarse(i + 1)
+  do i = 1, numprocs
+    BCcoarse(:, i) = (/acoarse(i), acoarse(i + 1)/)
   end do
 
   deallocate(LMcoarse%matrix, LMcoarse%cnt, rglobcoarse, acoarse, hlocal)  

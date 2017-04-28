@@ -45,4 +45,16 @@ function csr_mult(rows, a, BCs)
 end function csr_mult
 
 
+function straightline(geometry)
+  use mesh, only: geom
+  type(geom), intent(in) :: geometry
+
+  real(8) :: m
+  real(8) :: straightline(geometry%n_nodes)
+  m = (geometry%BCvals(2) - geometry%BCvals(1)) / &
+      (geometry%x(geometry%n_nodes) - geometry%x(1))
+  straightline = m * (geometry%x - geometry%x(1)) + geometry%BCvals(1)
+end function straightline
+
+
 end module solvers
