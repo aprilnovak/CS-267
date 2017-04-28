@@ -44,9 +44,6 @@ real(8)  :: endCSR             ! end CSR time
 ! variables to define the global problem
 real(8), dimension(:),    allocatable :: soln           ! global soln vector
 
-! variables to define the CG solver
-real(8)                            :: m           ! slope of line
-
 ! variables to define the local problem
 integer                               :: numprocs    ! number of processors
 integer                               :: rank        ! processor rank
@@ -140,18 +137,17 @@ if (rank == 0) then
 
   rowscoarse = form_csr(LMcoarse, coarse%n_nodes)
 
-  ! initial guess is a straight line between the two endpoints
+  ! initial guess for CG is a straight line between the two endpoints
   acoarse = straightline(coarse)
-
-  call conjugategradient(rowscoarse, acoarse, rglobcoarse, coarse%BCs, reltol = reltol)
+  acoarse = conjugategradient(rowscoarse, acoarse, rglobcoarse, coarse%BCs, reltol)
+!  call conjugategradient(rowscoarse, acoarse, rglobcoarse, coarse%BCs, reltol = reltol)
   
   ! insert first-guess BCs into BCcoarse array, then broadcast to all processes
   do i = 1, numprocs
     BCcoarse(:, i) = (/acoarse(i), acoarse(i + 1)/)
   end do
 
-  deallocate(LMcoarse%matrix, LMcoarse%cnt, rglobcoarse, acoarse, hlocal)  
-  deallocate(rowscoarse)
+  deallocate(LMcoarse%matrix, LMcoarse%cnt, rglobcoarse, acoarse, hlocal, rowscoarse)  
 end if
 
 call mpi_bcast(BCcoarse, 2 * numprocs, mpi_real8, 0, mpi_comm_world, ierr)
@@ -183,8 +179,9 @@ do while (itererror > ddtol)
   ! each processor solves for its domain --------------------------------------
   rglob(dd(rank + 1)%BCs(1)) = dd(rank + 1)%BCvals(1)
   rglob(dd(rank + 1)%BCs(2)) = dd(rank + 1)%BCvals(2)   
-  
-  call conjugategradient(rows, a, rglob, dd(rank + 1)%BCs, reltol = reltol)
+
+  a = conjugategradient(rows, a, rglob, dd(rank + 1)%BCs, reltol=reltol)
+!  call conjugategradient(rows, a, rglob, dd(rank + 1)%BCs, reltol = reltol)
   
   ! each processor sends a boundary value to the processor to the right -------
   if (rank /= numprocs - 1) then
@@ -194,7 +191,6 @@ do while (itererror > ddtol)
   ! processor to the right receives the message -------------------------------
   if (rank /= 0) then
     call mpi_recv(BClocals(1), 1, mpi_real8, rank - 1, rank - 1, mpi_comm_world, stat, ierr)
-    ! assign other local boundary condition
     BClocals(2) = a(2)
   end if
 
@@ -256,53 +252,5 @@ call dealloc_domains()
 call dealloc_global_mesh()
 call dealloc_shapefunctions()
 call dealloc_quadset()
-! ------------------------------------------------------------------------------
-
-
-CONTAINS ! define all internal procedures
-
-subroutine conjugategradient(rows, a, rglob, BCs, reltol)
-  real(8), intent(inout) :: a(:)          ! resultant vector
-  real(8), intent(in)    :: rglob(:)      ! rhs vector
-  integer, intent(in)    :: BCs(:)        ! BC nodes 
-  type(row), intent(in)  :: rows(:)       ! kglob in CSR form
-  real(8), intent(in), optional :: reltol ! relative CG tolerance
-
-  ! local variables
-  real(8) :: z(size(a)), res(size(a))
-  real(8) :: lambda, theta, internal, tol, conv
-  integer :: cnt, n
-  
-  n = size(a)
-
-  res         = rglob - csr_mult(rows, a, BCs)
-  internal    = sum(abs(res))
-  
-  ! set relative tolerance for convergence, using 0.001 as default
-  if (present(reltol)) then
-    tol = reltol * internal  
-  else
-    tol = 0.001 * internal
-  end if
-
-  z      = res
-  lambda = dotprod(z, res) / dotprod(csr_mult(rows, z, BCs), z)
-
-  a      = a + lambda * z
-  res    = rglob - csr_mult(rows, a, BCs)
-  conv   = sum(abs(res))
- 
-  cnt = 0
-  do while (conv > tol)
-    theta  = dotprod(csr_mult(rows, z, BCs), res) / dotprod(csr_mult(rows, z, BCs), z)
-    z      = res - theta * z
-    lambda = dotprod(z, res) / dotprod(csr_mult(rows, z, BCs), z)
-    a      = a + lambda * z
-    res    = rglob - csr_mult(rows, a, BCs)
-    conv   = sum(abs(res))
-    
-  cnt = cnt + 1
-  end do
-end subroutine conjugategradient
 
 END PROGRAM main
