@@ -68,13 +68,13 @@ function conjugategradient(rows, guess, rglob, BCs, reltol) result(a)
   real(8) :: a(size(guess))
 
   ! local variables
-  real(8) :: z(size(a)), res(size(a))
+  real(8) :: z(size(guess)), res(size(guess))
   real(8) :: lambda, theta, internal, tol, conv
   integer :: n, cnt
 
-  n = size(a)
+  n = size(guess)
 
-  res         = rglob - csr_mult(rows, a, BCs)
+  res         = rglob - csr_mult(rows, guess, BCs)
   internal    = sum(abs(res))
 
   ! set relative tolerance for convergence, using 0.001 as default
@@ -86,7 +86,6 @@ function conjugategradient(rows, guess, rglob, BCs, reltol) result(a)
 
   z      = res
   lambda = dotprod(z, res) / dotprod(csr_mult(rows, z, BCs), z)
-
   a      = guess + lambda * z
   res    = rglob - csr_mult(rows, a, BCs)
   conv   = sum(abs(res))
