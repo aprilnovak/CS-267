@@ -111,7 +111,7 @@ This final project for CS-267 involves the serial creation and parallelization o
 -k\frac{\partial^2 T}{\partial x^2}=\dot{q}
 \eeq
 
-where \(k\) is the thermal conductivity, \(T\) the temperature, and \(\dot{q}\) a volumetric heat source. This equation is kept very simple so that the goals of the project can focus entirely on parallelization algorithms, rather than more advanced numerical methods for solving convection-diffusion equations that would be encountered in a class such as MATH-228b (Numerical Solutions of Differential Equations). This equation will be solved using domain decomposition methods in 1-D. 
+where \(k\) is the thermal conductivity, \(T\) the temperature, and \(\dot{q}\) a volumetric heat source. This equation is kept very simple so that the goals of the project can focus entirely on parallelization algorithms, rather than more advanced numerical methods for solving convection-diffusion equations that would be encountered in a class such as MATH-228b (Numerical Solutions of Differential Equations). This equation will be solved using domain decomposition methods in 1-D using MPI for controlling the coarse-grained domain decomposition algorithm and OpenMP to obtain fine-grained loop-level parallelism.
 
 Due to the second derivative present, two boundary conditions are needed (one on each end of the domain). This presents the fundamental difficulty of parallelizing a domain decomposition  solution to this equation - if the domain is divided amongst different parallel processes or threads, then the equations cannot be solved unless guesses are made for the conditions on the interface boundaries that are created upon domain decomposition. Hence, any parallel solution will require an iterative procedure, where an initial guess for the interior boundary conditions are continually updated by comparing results obtained at domain interfaces. This application is \textit{not} embarrassingly parallel, and if the number of iterations required to reach convergence is very large, then the parallel runtime can easily be longer than the serial runtime. Hence, clever parallel algorithms will be developed such that a net reduction in runtime and good strong and weak scaling are obtained.
 
@@ -152,7 +152,7 @@ The important feature of this connectivity matrix from the perspective of parall
 
 Once these boundary conditions have been incorporated into the matrix system, the matrix system can be solved by your favorite linear algebra routine. For this assignment, the Conjugate Gradient (CG) method is selected to solve this symmetric system because this will provide more flexibility for exploring parallelization algorithms than simply using some routine from BLAS or LAPACK. To solve a matrix system \(\textbf{K}a=R\) by the CG method requires rewriting the governing equation as the minimization of a potential \(\Pi\). The exact solution is obtained by taking the gradient of this potential with respect to each of the expansion coefficients in the vector \(a\), and setting that gradient equal to zero. The minimizer to the potential \(\Pi\) is also a solution to the matrix system. Krylov methods are a class of methods that successively update an initial iterate guess in ways that minimize \(\Pi\) with each iteration. Details of the CG method are deferred to the Appendix.
 
-Given an initial guess for the solution \(a\), CG iterations are performed until there is acceptably small difference between two successive iterates \(a^i\) and \(a^{i+1}\). This numerical method is selected due to its relative simplicity. This concludes the theoretical discussion of the FEM applied to this simple 1-D heat equation. The next section discusses steps taken to obtain a fast serial implementation of this algorithm, and will go into more detail regarding exactly how this method can be implemented in code.
+Given an initial guess for the solution \(a\), CG iterations are performed until there is acceptably small difference between two successive iterates \(a^i\) and \(a^{i+1}\). This numerical method is selected due to its relative simplicity. This concludes the theoretical discussion of the FEM applied to this simple 1-D heat equation. The next section discusses steps taken to obtain a fast serial implementation of this algorithm, and will go into more detail regarding exactly how this method can be implemented in code. Although the heat equation is only solved in 1-D, no shortcuts are taken with the development of the code implementation. That is, with modifications to the initialization functions to set up a mesh and node numberings, I assume nothing about the structure of the matrices or boundary conditions that would invalidate natural extension to higher dimensions (i.e. this assignment could have been much easier had I assumed we would always have a 1-D domain, but I ran out of time to extend fully to 2-D).
 
 \section{Serial Implementation}
 
@@ -208,53 +208,113 @@ do k = 1, number_of_elements
 end do
 \end{lstlisting}
 
-Likewise, without the CSR storage, 
-
-
-
-However, compilers in general cannot vectorize code to the full extent possible, so some manual modifications were investigated to see if they could improve performance. 
-
-
-
-
-
-The Intel compiler provides good vectorization reports when using the {\tt -qopt-report=3} compiler option. 
+Likewise, without the CSR storage, applying boundary conditions becomes significantly less efficient. For every element, you need to check whether that element has a node on the boundary (which in 1-D is trivial, but is non-trivial in higher dimensions). This places a conditional statement within every loop, but with CSR storage, you can a-priori apply boundary conditions by setting to zero the off-diagonal terms in the rows corresponding to boundary nodes. For all timing results shown, the {\tt -O3} compiler setting is used.
 
 \section{Parallel Implementation}
-This section discusses parallelization of the serial code developed in the previous section. In general, there are two very different parallelization strategies here - the first involves domain decomposition amongst parallel threads, where each parallel thread then runs a complete FEM solution, with iteration between threads until all threads agree on the values of the solution at the boundaries between the spatial domain allocated to each process. Alternatively, a single FEM problem can be run (with no need to iterate boundary conditions because the domain is not decomposed), and the work for the single FEM solve distributed amongst parallel instances. Domain decomposition is more often used in large applications in practice because the domain may be so large and the problem information (such as discretized material properties, multiple components of solution vectors, etc.) so large that it cannot fit into the memory of a single processor. So, domain decomposition is pursued for this project, with the possibility of using OpenMP within an MPI process to obtain enhanced performance.
+This section discusses parallelization of the serial code developed in the previous section. In general, there are two very different parallelization strategies here - the first involves domain decomposition amongst parallel threads, where each parallel thread then runs a complete FEM solution, with iteration between threads until all threads agree on the values of the solution at the boundaries between the spatial domain allocated to each process. Alternatively, a single FEM problem can be run (with no need to iterate boundary conditions because the domain is not decomposed), and the work for the single FEM solve distributed amongst parallel instances. The problem with this second method is that the iterative solution occurs with a {\tt do while} loop, since the iterative solution is continually updated. This limits the CG solver to serial implementation, so a domain decomposition is more effective. Domain decomposition is also more often used because the domain may be so large and the problem information (such as discretized material properties, multiple components of solution vectors, etc.) so large that it cannot fit into the memory of a single processor. 
 
-The basic domain decomposition algorithm is shown below for a 1-D domain. Each parallel process solves a subregion of the domain, where the union of all of the subregions equals the original domain. To perform this step, boundary conditions must be imposed on all edges of the domain allocated to each process (since the Poisson equation has two derivatives). All locations where boundary conditions are imposed are indicated with vertical red lines. Because the solution is not known a-priori, the boundary conditions on the interior of the domain, between adjacent domains, must be guessed. After each process solves its subregion, there are two possible algorithms for solving the interface problem. First, all of the processes can communicate the values they compute for solutions one element on each side of the domain interfaces to a single process. This process would then solve the interface problem to determine updated guesses for the domain-interface values, and the entire iterative process repeated. This is the procedure that must be used in higher dimensions for unstructured meshes, since the interface problems would not necessarily be decouple as they are in 1-D. The second approach, which can {\it only} be used in the interface problems are decoupled from each other, is for the process to the left of each interface problem to communicate their boundary value to the processor to the right, and then that process solve a single interface problem. This reduces the number of broadcast operations required and also has the potential to reduce overall runtime because 1) each processor at most communicates with two other processors, and 2) a single process does not need to wait for all processes to finish their domain computations. Again, this is only possible if the interface problems are fully decoupled, which is the case for 1-D.
+There are many variants of domain decomposition algorithms, the earliest being Schwarz methods developed to compare against analytical solutions to differential equations on strange-shaped domains that could be decomposed into simpler shapes. It appears that most domain decomposition methods can be decomposed into two general categories:
+
+\begin{enumerate}
+\item Classes with no ``interface'' problem, where the decomposed domains {\it overlap}. The first domain decomposition method developed by Schwarz falls into this category. A 1-D problem can be divided into domains that overlap. Half of the domains solve their domain, using initial guesses for the internal boundary conditions. Then, because the domains overlap, the first half of the domains send a boundary condition value to the second half of domains (indicate with downward blue arrows below), which then solve over their domains individually. This second group then passes updated boundary condition values back to the first group (indicate with upward blue arrows), and iteration continues until convergence. 
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.8\textwidth]{../figures/1D-dd.png}
-\caption{Basic algorithm for 1-D domain decomposition.}
+\includegraphics[width=0.8\textwidth]{../figures/1D-schwarz2.png}
+\caption{Basic algorithm for 1-D domain decomposition using the overlapping Schwarz method.}
 \end{figure}
 
-Because it is easier to implement, the first version of this algorithm is implemented such that the rank 0 process solves the interface problem. The high-level pseudo code for this algorithm is as follows. For a single iteration, all processors solve their domains, and then a barrier is required to ensure that they have all completed before broadcasting their boundary values to the rank 0 process. Once the rank 0 process has received all of the boundary information, it solves the {\tt numprocs - 1} interface problems, and updates the domain-domain boundary conditions stored in memory. Then, the rank 0 process broadcasts these updated boundary conditions to all processes. In order to determine if the looping should continue, a reduction operation is performed to collect the relative change in the domain-domain boundary conditions.
+\item Classes that solve an ``interface problem'' and have no overlapping domains. The union of all the domains equal the original problem dimensions. All locations where boundary conditions are imposed are indicated with vertical red lines. Because the solution is not known a-priori, the boundary conditions on the interior of the domain, between adjacent domains, must be guessed. After each process solves its domain individually, an interface problem is solved between each domain using updated solution values from the most recent domain solve. The interface problem is used to compute an updated domain-interface boundary condition, which is sent back to the individual domains. Iteration continues until convergence.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{../figures/1D-dd2.png}
+\caption{Basic algorithm for 1-D domain decomposition using the interface problem method.}
+\end{figure}
+
+There are several possible algorithms for solving the interface problem. A master-slave approach can be taken, and a single process computes all interface problems. This is the natural approach in higher dimensions when the interfaces between the domains are connected (like the white regions on a giraffe). However, in 1-D, an alternative approach has each process communicate a single boundary condition value to its right neighbor. Then, the odd processes solve an interface problem, and communicate a single value back to its left neighbor. This approach can only be used when the interfaces are decoupled from each other, but offers greater potential for parallel efficiency since at least half of the processes are working during the interface solve, as opposed to a single process using the master-slave approach. In higher dimensions, the master-slave approach does not necessarily need to be used, and recursive domain decomposition could be applied to solve the interface problem using multiple MPI processes (but due to lack of time this is not pursued here).
+\end{enumerate}
+
+The interface problem method, where each domain communicates with at most two other domains (its left and right neighbors), is pursued in this project. This reduces the number of broadcast operations required and also has the potential to reduce overall runtime because each processor at most communicates with two other processors and only half of the processes are idle during the interface solve (unless communication is overlapped with computation using nonblocking communications). 
+
+The pseudo code for this parallel implementation differs little from the pseudo code the serial version, except that extra pre-processing steps are necessary to divide the domain into as-close-as-possible equal-sized domains and prescribe initial guesses for the domain interface boundary conditions. Then, in a while loop, the processes solve their domains individually, send a boundary condition to their right, and wait to receive an updated boundary condition from their right neighbor after that process solves the interface problem. The following pseudo code shows the MPI implementation of the iterative domain decomposition algorithm (with some details omitted). Because the Poisson equation transmist information at infinite speeds, convergence of the domain decomposition algorithm fundamentally has to be based on the errors computed at {\it all} interfaces. That is, processes cannot finish in less iterations than some other process, since the problem is inherently global (unlike convection problems, where information travels at finite speeds). Hence, a barrier is required before beginning the next iteration loop. An iteration tolerance of 0.00001 is used for all results shown in this report.
 
 \begin{lstlisting}
-do while (iteration_error > tol)
-	! each processor solves for its domain
+! divide problem into domains and assign to processes ...
 
-	call mpi_barrier(mpi_comm_world, ierr)
-	call mpi_gatherv(local_bcs, mpi_real8, interface_bcs, 2, 2, mpi_real8, 0, mpi_comm_world, ierr)
-	
-	! rank 0 process solves the interface problems
-	if (rank == 0) then
-		do interface = 1, numprocs - 1
-			! solve interface problem
-			! update matrix of BCs
-		end do
-	end if
-	
-	call mpi_bcast(local_bcs, numprocs * 2, mpi_real8, mpi_comm_world, ierr)
-	
-	! determine iteration_error
-	call mpi_allreduce(abs(local_bs(1, rank) - previous_bcs(1, rank)), iteration_error, 1, mpi_real8, mpi_comm_world, ierr)
-end do
+do while (itererror > ddtol) ! iteration loop 
+  ! save the previous values of the interface BCs
+  prev = dd(rank + 1)%BCvals
+
+  ! each processor solves for its domain --------------------------------------
+  dd(rank + 1)%rglob(dd(rank + 1)%BCs(1)) = dd(rank + 1)%BCvals(1)
+  dd(rank + 1)%rglob(dd(rank + 1)%BCs(2)) = dd(rank + 1)%BCvals(2)
+
+  dd(rank + 1)%a = conjugategradient(rows, dd(rank + 1)%a, dd(rank + 1)%rglob, &
+                                     dd(rank + 1)%BCs, reltol=reltol)
+
+  ! each processor sends a boundary value to the processor to the right -------
+  if (rank /= numprocs - 1) then
+    call mpi_send(dd(rank + 1)%a(dd(rank + 1)%n_nodes - 1), 1, mpi_real8, &
+                  rank + 1, rank, mpi_comm_world, ierr)
+  end if
+
+  ! processor to the right receives the message -------------------------------
+  if (rank /= 0) then
+    call mpi_recv(BClocals(1), 1, mpi_real8, rank - 1, rank - 1, &
+                           mpi_comm_world, stat, ierr)
+    BClocals(2) = dd(rank + 1)%a(2)
+  end if
+
+  call mpi_barrier(mpi_comm_world, ierr)
+
+  ! each processor solves its interface problem -------------------------------
+  if (rank /= 0) then
+    dd(rank + 1)%BCvals(1) = (rel(2) + rel(1) - kel(2, 1) * BClocals(2) &
+                      - kel(1, 2) * BClocals(1)) / (kel(2, 2) + kel(1, 1))
+    ! send new interface result to rank - 1 process (to BCvals(2) of rank - 1)
+    call mpi_send(dd(rank + 1)%BCvals(1), 1, mpi_real8, rank - 1, rank, &
+                           mpi_comm_world, ierr)
+  end if
+
+  ! rank - 1 process receives from the process to the right -------------------
+  if (rank /= numprocs - 1) then
+    call mpi_recv(dd(rank + 1)%BCvals(2), 1, mpi_real8, rank + 1, rank + 1, &
+                  mpi_comm_world, stat, ierr)
+  end if
+
+  ! compute iteration error to determine whether to continue looping ----------
+  call mpi_allreduce(abs(dd(rank + 1)%BCvals - prev), itererror, 1, mpi_real8, &
+                                mpi_sum, mpi_comm_world, ierr)
+
+  call mpi_barrier(mpi_comm_world, ierr)
+  ddcnt = ddcnt + 1
+end do ! ends outermost domain decomposition loop
 \end{lstlisting}
 
+The pre-processing step of computing domain decomposition information such as the domain edge points and initial boundary condition values, are computed (redundantly) by {\it every} process. This eliminates communication from a single process to all other processes of this information, which would be more costly than simply having every process recompute the same information (since this portion of the algorithm accounts for a negligibly small fraction of the total run time). Because the cost of a matrix-vector product is roughly \(\mathscr{O}(N)\), the cost of the CG solver is \(I\mathscr{O}(n)\), where \(I\) is the number of CG iterations required. Likewise, the relative cost of a domain decomposition iteration is of order \(ID\mathscr{O}(N)\), where \(D\) is the number of domain decomposition iterations required for all processes to agree on the values of the solution at the interfaces. Hence, the success of the parallel implementation absolutely requires relatively few iterations amongst processes. This important feature will be returned to shortly.
+
+Several interesting observations resulted from this initial implementation. The solution over the domain, given a constant heat source and thermal conductivity, will be parabolic. But, assuming we don't know this information, an initial guess for the interface boundary conditions was selected by assuming a straight-line solution between the two endpoints. Iterative global solutions are plotted in Fig. \ref{fig:interface}(a) for boundary conditions of 2 on the left and 3 on the right for 5 MPI processes for an interface width of two elements (i.e. each interface problem solves a 2-element domain, centered on the boundary between the decomposed domains). Each dashed line represents an domain decomposition iteration (where interface BCs are updated between each iteration), with only every 20 iterations shown. With this initial boundary condition guess, 1017 domain decomposition iterations are required! This is more than double the number of elements, and additional tests show that it increases with the number of elements. This number of iterations is far too large, so some steps must be taken to improve the algorithm to reduce the number of iterations.
+
+The first approach taken to reduce the total number of domain decomposition iterations was to used a wider interface problem. That is, the width of each processor domain becomes smaller, and the interface region becomes wider. It was hoped that this would lead to faster convergence, because as can be seen in Fig. \ref{fig:interface}(a), because the solution values one element apart from the domain interfaces are very close to each other in magnitude, the interface values change with correspondingly small magnitude each iteration. With a wider interface, the boundary values for each interface are more different from each other, which could lead to faster convergence. Results obtained for the same problem characteristics, but with an interface width of 10 elements, is shown in Fig. \ref{fig:interface1}(b). With this wider interface, only 234 domain decomposition iterations are required, but the solution obtained is now incorrect (as assessed by comparing to the analytical solution). This occurs because the larger the interface, the greater the magnitude of the error in the initial boundary condition guesses (because the straight-line solution is incorrect), and choosing a wider interface applies this error over a wider range. For this particular example, this results in a sharp corner developing in the solution. This interesting result shows that the interface region must be kept very small. 
+
+\begin{figure}[H]
+        \centering
+        \begin{subfigure}[b]{0.45\textwidth}
+                \centering
+                \includegraphics[width=\textwidth]{../figures/interface1.png}
+                \caption{}
+        \end{subfigure}%
+                \begin{subfigure}[b]{0.45\textwidth}
+                \centering
+                \includegraphics[width=\textwidth]{../figures/interface2.png}
+                \caption{}
+        \end{subfigure}%
+        \caption{Iterative solutions (only every 20 iterations are plotted) for (a) an interface width of 2 elements and (b) an interface width of 10 elements for 5 MPI processes, 500 elements, and initial interface boundary condition values given by a straight line between the two endpoints.}
+        \label{fig:interface}
+\end{figure}
+
+If the interface region is to be kept so small, then some other algorithmic change must be done to reduce the number of domain decomposition iterations. 
 
 \section{Appendix}
 \subsection{Details of the Finite Element Method}
