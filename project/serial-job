@@ -1,0 +1,21 @@
+#!/bin/bash -l
+#SBATCH -p debug 		# change this option for non-debug runs
+#SBATCH -t 00:5:00		# adjust the amount of time as necessary
+#SBATCH -N 1    		# adjust the number of nodes per test (e.g. start with 1, 2, ...)
+#SBATCH -A mp309
+#SBATCH -o serial.%j.stdout
+#SBATCH -e serial.%j.error
+
+# number of pretend_procs
+#for i in $(seq 4 4 16)
+#do
+    srun -N 1 ./serial.out 1 1000 2 3 5
+    srun -N 1 ./serial.out 1 2000 2 3 5
+    srun -N 1 ./serial.out 1 4000 2 3 5
+    srun -N 1 ./serial.out 1 8000 2 3 5
+    srun -N 1 ./serial.out 1 16000 2 3 5
+
+
+# -n : number of MPI processes
+# -c : number of OpenMP threads
+# -N : number of nodes

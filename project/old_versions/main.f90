@@ -128,11 +128,15 @@ end do
 rglob(1) = leftBC                ! left BC value
 rglob(n_nodes) = rightBC         ! right BC value     
 
+! initial guess is a straight line between the two endpoints
+m = (rightBC - leftBC) / length
+a = m * x
+a = a + leftBC
+
 call cpu_time(startCG)
-call conjugategradient()
+call conjugategradient(a)
 call cpu_time(endCG)
 print *, 'CG iteration time: ', endCG - startCG
-print *, 'CG number: ', cnt
 
 ! write to an output file. If this file exists, it will be re-written.
 open(1, file='output.txt', iostat=AllocateStatus, status="replace")
@@ -150,14 +154,8 @@ deallocate(qp, wt, x, kel, rel, phi, dphi, rglob, a, z, res, LM)
 
 CONTAINS ! define all internal procedures
 
-subroutine conjugategradient()
-  ! initial guess is a straight line between the two endpoints
-  m = (rightBC - leftBC) / length
-  !do i = 1, n_nodes
-  !  a(i) = m * x(i)
-  !end do
-  a           = m * x
-  a           = a + leftBC
+subroutine conjugategradient(a)
+  real(8), intent(inout) :: a(:)
   res         = rglob - sparse_mult(kel, LM, a)
   z           = res
   lambda      = dotprod(z, res)/dotprod(z, sparse_mult(kel, LM, z))
