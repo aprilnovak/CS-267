@@ -100,7 +100,7 @@ if (.true.) then
   ! initial guess for CG is a straight line between the two endpoints
   coarse%a = straightline(coarse)
   coarse%a = conjugategradient(rowscoarse, coarse%a, coarse%rglob, coarse%BCs, reltol)
-  
+
   ! insert first-guess BCs into initial guess for solution
   do i = 1, pretend_procs
     BCcoarse(:, i) = (/coarse%a(i), coarse%a(i + 1)/)
@@ -128,20 +128,19 @@ call form_csr(LMfine, global%n_nodes, rows)
 global%a = conjugategradient(rows, global%a, global%rglob, &
                                      global%BCs, reltol=reltol)
   
-
 ! write results to output file ------------------------------------------------
-!if (.false.) then
+if (.false.) then
   global%a(global%n_nodes) = rightBC 
   ! write to an output file. If this file exists, it will be re-written.
   open(1, file='output.txt', iostat=AllocateStatus, status="replace")
   if (AllocateStatus /= 0) STOP "output.txt file opening failed."
 
   write(1, *) pretend_procs, global%n_el, 0, global%a
-!end if
+end if
 
 ! final timing results --------------------------------------------------------
-  call cpu_time(finish)
-  print *, 'P: ', pretend_procs, 'n_el: ', global%n_el, 'runtime: ', finish - start
+call cpu_time(finish)
+print *, 'SERAIL P: ', pretend_procs, 'n_el: ', global%n_el, 'runtime: ', finish - start
 
 ! deallocate memory -----------------------------------------------------------
 deallocate(LMfine%matrix, LMfine%cnt, BCcoarse, rows)
