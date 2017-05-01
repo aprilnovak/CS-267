@@ -200,7 +200,7 @@ call mpi_gatherv(dd(rank + 1)%a(1:(dd(rank + 1)%n_nodes - 1)), dd(rank + 1)%n_no
                  0, mpi_comm_world, ierr)
 
 ! write results to output file ------------------------------------------------
-!if (.false.) then
+if (.false.) then
 if (rank == 0) then
   global%a(global%n_nodes) = rightBC 
   ! write to an output file. If this file exists, it will be re-written.
@@ -209,12 +209,12 @@ if (rank == 0) then
 
   write(1, *) numprocs, global%n_el, ddcnt, global%a
 end if
-!end if
+end if
 
 ! final timing results --------------------------------------------------------
 if (rank == 0) then
   call cpu_time(finish)
-  print *, 'P: ', numprocs, 'n_el: ', global%n_el, 'runtime: ', finish - start
+  print *, 'MPI P: ', numprocs, 'n_el: ', global%n_el, 'runtime: ', finish - start
 end if
 
 ! deallocate memory -----------------------------------------------------------
