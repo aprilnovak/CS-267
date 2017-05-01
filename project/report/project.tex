@@ -331,65 +331,63 @@ The first approach taken to reduce the total number of DD iterations was to used
                 \includegraphics[width=\textwidth]{../figures/interface2.png}
                 \caption{Interface width of 10 elements}
         \end{subfigure}%
-        \caption{Iterative solutions (only every 20 iterations are plotted) for (a) an interface width of 2 elements and (b) an interface width of 10 elements for 5 MPI processes, 500 elements, and initial interface boundary condition values given by a straight line between the two endpoints.}
+        \caption{Iterative solutions (only every 20 iterations are plotted) for an interface width of (a) 2 elements and (b) 10 elements for 5 MPI processes, 500 elements, and initial interface boundary condition values given by a straight line between the two endpoints.}
 \label{fig:interface}
 \end{figure}
 
-If the interface region is to be kept so small, then some other algorithmic change must be done to reduce the number of domain decomposition iterations. The next approach taken was to improve the initial boundary conditions guesses by solving a coarse-mesh problem. The rank 0 process solves a coarse mesh solution, where the mesh nodes are taken as the nodes on the domain interfaces. For a 5-process solve, the coarse mesh would consist of 5 elements, with nodes at the same locations as the domain interfaces. After the rank 0 process computes this solution (the algorithm for which is identical to the larger solves, but with fewer elements), the better interface initial conditions are broadcast to all other processes, and then every process continues with the domain decomposition algorithm described earlier. This change produced a {\it huge} improvement. For the same iteration tolerance used for the results in Fig. \ref{fig:interface}, only one domain decomposition iteration is required! Hence, a major take-away from this project that wasn't touched upon by our homework assignments is that parallel implementations that require iteration amongst processes can easily be fundamentally slower than serial implementations (not just because of communication overhead, but rather the requirement of {\it more} iterations). For this project, the use of this better inter-processor initial condition was used to yield a successful implementation. In practice, many codes that use domain decomposition will perform a coarse mesh solution that is also used for preconditioning to further enhance the parallel viability of an iterative domain decomposition method.
-
-After obtaining a working MPI implementation, OpenMP parallelism was added at a fine-grained level to all parallelizable loops. 
-
-
-
-
-
-
-
+The next approach taken to reduce the number of DD iterations was to improve the initial boundary conditions guesses by solving a coarse-mesh problem. The rank 0 process solves a coarse mesh solution, where the mesh nodes are taken as the nodes on the domain interfaces. For a 5-process solve, the coarse mesh would consist of 5 elements, with nodes at the same locations as the domain interfaces. After the rank 0 process computes this solution (the algorithm for which is identical to the larger solves, but with fewer elements), the better interface initial conditions are broadcast to all other processes, and then every process continues with the domain decomposition algorithm described earlier. This change produced a {\it huge} improvement. For the same iteration tolerance used for the results in Fig. \ref{fig:interface}, only one DD iteration is required! Hence, a major take-away from this project that wasn't touched upon by our homework assignments is that parallel implementations that require iteration amongst processes can easily be fundamentally slower than serial implementations (not just because of communication overhead, but rather the requirement of {\it more} iterations), even if {\it theoretically} they should be faster because the ODE solver scales as \(\mathscr{O}(N^2)\). For this project, the use of this better inter-processor initial condition was used to yield a successful implementation. In practice, many codes that use domain decomposition will perform a coarse mesh solution that is also used for preconditioning to further enhance the parallel viability of an iterative DD method.
 
 \subsection{Alternative Parallel Implementations}
 This section briefly discusses several alternative parallel implementations that were pursued early-on in the project before determining that the interface problem approach described previously was the best option. The overlapping Schwarz method, where only half of the domains can be solved at any one time, proved to be too slow, since at any one time about half of the processes are idle. However, this approach did not require any interface solves. But with an interface of width 2 elements, the cost of the interface solves is negligible, and hence the dominant feature of idle processes proved this approach to be too slow. The code for this implementation is shown in the Appendix as {\tt amain.f90}, but for brevity none of the results are discussed except to say that the method was much slower than the chosen method. At any one time, the interface problem approach, where each process except the rank 0 process computes an interface problem, {\it at most} has a single process idle.
 
 \section{Implementation Results}
-This section discusses implementation results with the serial, MPI, and MPI plus OpenMP implementations. To keep things fair, the serial case uses the same initial condition as the MPI cases, and a number of ``pretend processes'' are passed on the command line to the serial case to compute the coarse mesh initial conditions (which is then input as a whole to the CG solver). When using the same initial condition, the serial and parallel implementations perform almost the same number of cumulative CG iterations (because with the better initial condition only one domain decomposition iteration is needed), the only difference being that for the parallel implementations, each process performs a subset of the iterations. First, results will be shown for the implementation of sole MPI parallelism to determine the speedup relative to serial and the strong and weak scaling. Then, results will be shown of the combined MPI-OpenMP parallelism to determine the added performance associated with the use of OpenMP.
+This section discusses implementation results with the serial, MPI, and MPI plus OpenMP implementations. To keep comparisons fair, the serial case uses the same initial condition as the MPI cases, and a number of ``pseudo processes'' are passed on the command line to the serial case to compute the coarse mesh initial conditions (which is then input as an initial guess to the CG solver). When using the same initial condition, the serial and parallel implementations perform almost the same number of cumulative CG iterations (because with the better initial condition only one domain decomposition iteration is needed). The only difference is that for the parallel implementations, each process performs a subset of the iterations. This section is divided into two main parts, the first discussing parallelization with MPI alone, and the second with MPI and OpenMP combined. All results are obtained on Edison.
 
+\subsection{MPI Parallelization}
 
-
-
-
-Fig. \ref{fig:speedupMPI}(a) shows the speedup achieved for 2 to 24 MPI processes on a single node on Edison. The raw data used to generate this plot is shown in Fig. \ref{fig:speedupMPIruntime}(a), where it is shown that the serial runtime is relatively constant for a given number of elements, but the parallel implementation runtime decreases with the number of processes. Because the total number of CG iterations is roughly proportional to the number of elements, but not the number of processes, this substantial difference in runtime can be attributed to the {\it overall} algorithm {\it not} scaling as \(\mathscr{O}(N)\), but rather as some higher power of \(N\), since then the impact of reducing the number of elements per solve has a greater and greater impact (because the speedup increases better than linearly). However, the results shown for a single node are not entirely useful, since rarely would you run as many as 24 MPI processes on a single node - a more common number is between 1 and 4 MPI processes per node. To test how the runtime is affected by the partitioning of MPI processes among nodes, the same simulation is run with 12 compute nodes and between 1 and 8 MPI processes per node. The raw data is shown in Fig. \ref{fig:speedupMPIruntime}(b), and the speedup in Fig. \ref{fig:speedupMPI}(b) for the optimal selection of xxxx MPI processes/node.
+Fig. \ref{fig:speedupMPI} shows the speedup as a function of the number of MPI processes for a single node with 20,000 elements for (a) the raw data, and (b) the speedup scaled by \(m^2\). Because the speedup scales as \(m^2/D\), and only one DD iteration occurs for this test, the speedup is shown in (b) scaled by \(m^2\). Scaling by \(m^2\) changes quadratic speedup behavior to linear in order to illustrate the efficiency of the parallel algorithm {\it independent} of the scaling benefit awarded by the algorithm selection. As can be seen, although the speedup is very large, there is still a lot of room for improvement in the parallel algorithm, since the speedup, scaled by \(m^2\) appears to decrease linearly. This decreasing trend could indicate that my estimates for cost are overly simplified (in which case scaling by \(m^2\) is meaningless), on the other hand. In terms of the absolute speedup, there is no ``optimal'' number of MPI processes per node, since the greater the number, the greater the performance. However, from (b) below, it would appear that 3 MPI tasks per node would be optimal, since this combines a speedup of about 40 before the large drop in speedup when normalized (again assuming scaling by \(m^2\) is meaningful). 
 
 \begin{figure}[H]
         \centering
         \begin{subfigure}[b]{0.5\textwidth}
                 \centering
-                \includegraphics[width=\textwidth]{../figures/speedup-mpi.png}
-                \caption{Single node}
+                \includegraphics[width=\textwidth]{../figures/unscaled-mpi.png}
+                \caption{Raw}
         \end{subfigure}%
                 \begin{subfigure}[b]{0.5\textwidth}
                 \centering
-                \includegraphics[width=\textwidth]{../figures/interface2.png}
-                \caption{12 nodes}
+                \includegraphics[width=\textwidth]{../figures/scaled-mpi.png}
+                \caption{Scaled by \(m^2\)}
         \end{subfigure}%
-\caption{Speedup relative to serial performance as a function of the number of MPI processes on (a) a single node for 20,000 elements, and (b) 12 nodes with 100,000 elements using xxxx MPI processes/node. Note that because the initial condition depends on the number of processes, each data point is normalized to the speedup using that number of ``pseudo'' processes. To avoid wasting computing resources, and because the runtime for the serial algorithm is approximately independent of the initial condition guess, the speedup for (b) is normalized to the serial runtime for 96 pseduo-processes (since this would be the best runtime anyways, this is conservative).}
-        \label{fig:speedupMPI}
-\end{figure}
-
-
-\begin{figure}[H]
-        \centering
-        \begin{subfigure}[b]{0.5\textwidth}
-                \centering
-                \includegraphics[width=\textwidth]{../figures/singlenode-mpi.png}
-                \caption{Single node}
-        \end{subfigure}%
-                \begin{subfigure}[b]{0.5\textwidth}
-                \centering
-                \includegraphics[width=\textwidth]{../figures/speedup-mpi-multinode.png}
-                \caption{12 nodes}
-        \end{subfigure}%
-\caption{Runtime as a function of the number of MPI processes on (a) a single node for 20,000 elements, and (b) 12 nodes with 100,000 elements.}
+\caption{Runtime as a function of the number of MPI processes on a single node for 20,000 elements. Plot (b) shows the same speedup, scaled by \(m^2\), where \(m\) is the number of MPI processes.}
         \label{fig:speedupMPIruntime}
 \end{figure}
+
+Fig. \ref{fig:scalingMPI} shows the (a) weak and (b) strong scaling obtained for the MPI parallelization. Scaling results are normalized relative to the runtime for the smallest recorded number of MPI processes used (in this case 2). For the weak scaling results, \(20000m\) particles are run for \(m\) MPI processes (i.e. the problem size is increased proportional to the number of processes). Results are shown for 1-3 MPI tasks per node. 
+
+\begin{figure}[H]
+        \centering
+        \begin{subfigure}[b]{0.5\textwidth}
+                \centering
+                \includegraphics[width=\textwidth]{../figures/weak-mpi.png}
+                \caption{Weak Scaling}
+        \end{subfigure}%
+                \begin{subfigure}[b]{0.5\textwidth}
+                \centering
+                \includegraphics[width=\textwidth]{../figures/strong-mpi.png}
+                \caption{Strong Scaling}
+        \end{subfigure}%
+\caption{Speedup as a function of the number of nodes with (a) the number of elements increase proportional to the number of processes and (b) the number of elements fixed at 1 million. Several lines show the performance for 1 to 3 MPI tasks per node.}
+        \label{fig:scalingMPI}
+\end{figure}
+
+\subsection{OpenMP Parallelization}
+
+This sectiion discusses the results obtained when combining the MPI parallelization discussed in the previous section with OpenMP fine-grained parallelism.
+
+
+
+
 
 
 
