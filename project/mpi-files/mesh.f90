@@ -35,8 +35,10 @@ integer, private :: AllocateStatus
 contains
 
 subroutine initialize_global_mesh()
-  use read_data, only: leftBC, rightBC
+  use read_data, only: leftBC, rightBC, length, n_el
   integer :: i
+  global%length = length
+  global%n_el = n_el
   global%h = global%length / real(global%n_el)
   global%n_nodes = global%n_el + 1
  

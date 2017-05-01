@@ -10,11 +10,12 @@ real(8), save :: source      ! heat source
 real(8), save :: reltol      ! CG relative convergence tolerance
 real(8), save :: ddtol       ! DD convergence tolerance
 integer, save :: pretend_procs ! fake number of processes to simulate same IC
+real(8), save :: length, n_el
 
 contains
 
 subroutine read_commandline()
-  use mesh, only: global
+!  use mesh, only: global
   integer              :: nargs
   integer              :: i
   character(len = 12)  :: args
@@ -25,9 +26,9 @@ subroutine read_commandline()
     call get_command_argument(i, args)
     select case (i)
       case(1)
-        read(args, *) global%length
+        read(args, *) length
       case(2)
-        read(args, *) global%n_el
+        read(args, *) n_el
       case(3)
         read(args, *) leftBC
       case(4)
