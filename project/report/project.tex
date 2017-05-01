@@ -341,7 +341,7 @@ The next approach taken to reduce the number of DD iterations was to improve the
 This section briefly discusses several alternative parallel implementations that were pursued early-on in the project before determining that the interface problem approach described previously was the best option. The overlapping Schwarz method, where only half of the domains can be solved at any one time, proved to be too slow, since at any one time about half of the processes are idle. However, this approach did not require any interface solves. But with an interface of width 2 elements, the cost of the interface solves is negligible, and hence the dominant feature of idle processes proved this approach to be too slow. The code for this implementation is shown in the Appendix as {\tt amain.f90}, but for brevity none of the results are discussed except to say that the method was much slower than the chosen method. At any one time, the interface problem approach, where each process except the rank 0 process computes an interface problem, {\it at most} has a single process idle.
 
 \section{Implementation Results}
-This section discusses implementation results with the serial, MPI, and MPI plus OpenMP implementations. To keep comparisons fair, the serial case uses the same initial condition as the MPI cases, and a number of ``pseudo processes'' are passed on the command line to the serial case to compute the coarse mesh initial conditions (which is then input as an initial guess to the CG solver). When using the same initial condition, the serial and parallel implementations perform almost the same number of cumulative CG iterations (because with the better initial condition only one domain decomposition iteration is needed). The only difference is that for the parallel implementations, each process performs a subset of the iterations. This section is divided into two main parts, the first discussing parallelization with MPI alone, and the second with MPI and OpenMP combined. All results are obtained on Edison.
+This section discusses implementation results with the serial, MPI, and MPI plus OpenMP implementations. To keep comparisons fair, the serial case uses the same initial condition as the MPI cases, and a number of ``pseudo processes'' are passed on the command line to the serial case to compute the coarse mesh initial conditions (which is then input as an initial guess to the CG solver). When using the same initial condition, the serial and parallel implementations perform almost the same number of cumulative CG iterations (because with the better initial condition only one domain decomposition iteration is needed). The only difference is that for the parallel implementations, each process performs a subset of the iterations. This section is divided into two main parts, the first discussing parallelization with MPI alone, and the second with MPI and OpenMP combined. All results are obtained on Edison, and output of the results is turned off (since writing the output file is a significant portion of the runtime when included).
 
 \subsection{MPI Parallelization}
 
@@ -360,10 +360,10 @@ Fig. \ref{fig:speedupMPI} shows the speedup as a function of the number of MPI p
                 \caption{Scaled by \(m^2\)}
         \end{subfigure}%
 \caption{Runtime as a function of the number of MPI processes on a single node for 20,000 elements. Plot (b) shows the same speedup, scaled by \(m^2\), where \(m\) is the number of MPI processes.}
-        \label{fig:speedupMPIruntime}
+        \label{fig:speedupMPI}
 \end{figure}
 
-Fig. \ref{fig:scalingMPI} shows the (a) weak and (b) strong scaling obtained for the MPI parallelization. Scaling results are normalized relative to the runtime for the smallest recorded number of MPI processes used (in this case 2). For the weak scaling results, \(20000m\) particles are run for \(m\) MPI processes (i.e. the problem size is increased proportional to the number of processes). Results are shown for 1-3 MPI tasks per node. 
+Fig. \ref{fig:scalingMPI} shows the (a) weak and (b) strong scaling obtained for the MPI parallelization. Scaling results are normalized relative to the runtime for the smallest recorded number of MPI processes used (in this case 2). For the weak scaling results, \(40000m\) particles are run for \(m\) MPI processes (i.e. the problem size is increased proportional to the number of processes). Results are shown for 1-3 MPI tasks per node. As can be seen, excellent weak scaling is obtained - by increasing the problem size proportional to the number of MPI processes, the speedup does not deviate from 1 (indicating that the algorithm behaves just as well as the problem size is scaled proportional to the number of processes). There also does not appear to be any clear optimal choice in the number of MPI tasks per node when judged using weak scaling. Strong scaling results are obtained using a fixed number of 100,000 elements and increasing the number of MPI processes. As can be seen, the strong scaling performance is excellent, and roughly increases as \(N^2\) due to the scaling of the CG method.
 
 \begin{figure}[H]
         \centering
@@ -377,7 +377,7 @@ Fig. \ref{fig:scalingMPI} shows the (a) weak and (b) strong scaling obtained for
                 \includegraphics[width=\textwidth]{../figures/strong-mpi.png}
                 \caption{Strong Scaling}
         \end{subfigure}%
-\caption{Speedup as a function of the number of nodes with (a) the number of elements increase proportional to the number of processes and (b) the number of elements fixed at 1 million. Several lines show the performance for 1 to 3 MPI tasks per node.}
+\caption{Speedup as a function of the number of nodes with (a) the number of elements increase proportional to the number of processes and (b) the number of elements fixed at 100,000. Several lines show the performance for 1 to 3 MPI tasks per node.}
         \label{fig:scalingMPI}
 \end{figure}
 
@@ -401,19 +401,13 @@ This sectiion discusses the results obtained when combining the MPI parallelizat
 This section contains additional discussion of the FEM that is necessary to fully understand the code developed, but not necessary to appreciate parallelization algorithms.
 
 \subsubsection{The Element-Wise Weak Form}
-The stiffness matrix shown in Eq. \eqref{eq:Stiffness} consists of the multiplication of the derivatives of \(\phi_i(x)\) with \(\phi_j(x)\). If these shape functions are defined over the {\tt entire} domain, then the stiffness matrix will be a dense matrix. On the other hand, if we choose these shape functions to be nonzero only over a single small region of the domain, then the product of cross terms will be zero for most of the matrix, since the effect of a single shape function will be very localized. This will produce sparse matrices, which will be much easier to work with and will also permit easier extension as a numerical method over a discretized domain. Hence, the expansion for the solution and test function for a {\it single} element (``element'' is used in this sense as a small region of the domain, i.e. a meshing software would divide up a continuous domain into discrete elements) becomes:
+The stiffness matrix shown in Eq. \eqref{eq:k} consists of the multiplication of the derivatives of \(\phi_i(x)\) with \(\phi_j(x)\). If these shape functions are defined over the {\it entire} domain, then the stiffness matrix will be a dense matrix. On the other hand, if we choose these shape functions to be nonzero only over a single small region of the domain, then the product of cross terms will be zero for most of the matrix, giving a sparse matrix. Hence, the expansion for the solution and test function for a {\it single} element (``element'' is used in this sense as a small region of the domain) becomes:
 
 \beq
 T_h^e=\sum_{j=1}^{n_{en}}c_j^e\phi_j^e(x)
 \eeq
 
-where the \(e\) superscript indicates the element and \(n_{en}\) are the number of element nodes. A nodal basis is selected for the shape functions. This means that, over a single element, the shape functions are unity at their corresponding node, and zero at the other nodes. The matrix equation \(K_{ij}c_j=R_i\) can be written for written for each individual element, with a post-processing step that takes the system of equations for each element and connects them all together to enforce solution continuity at element interfaces. 
-
-\beq
-K_{ij}^ec_j^e=R_i^e
-\eeq
-
-where
+where the \(e\) superscript indicates the element and \(n_{en}\) are the number of element nodes. A nodal basis is selected for the shape functions. This means that, over a single element, the shape functions are unity at their corresponding node, and zero at the other nodes. The matrix equation \(K_{ij}c_j=R_i\) can be written for each individual element as \(K_{ij}^ec_j^e=R_i^e\), with a post-processing step that takes the system of equations for each element and connects them all together to enforce solution continuity at element interfaces. 
 
 \beq
 K_{ij}^e=\int_{\Omega^e}\frac{\partial \phi_j(x)}{\partial x}k\frac{\partial\phi_i(x)}{\partial x}dx-\int_{\Gamma^e}k\frac{\partial \phi_j(x)}{\partial x}\phi_i(x)\cdot\hat{n}dx
@@ -423,10 +417,19 @@ K_{ij}^e=\int_{\Omega^e}\frac{\partial \phi_j(x)}{\partial x}k\frac{\partial\phi
 R_{i}^e=\int_{\Omega^e}\dot{q}\phi_i(x)dx
 \eeq
 
-such that the domain of integration is only over a single element. However, the system of equations for each element, \(K_{ij}^ec_j^e=R_i^e\), is singular, and cannot be solved independently of the other elements, since we require solution continuity at inter-element nodes. This requires the formation of a connectivity matrix.
+These integrals are defined such that the domain of integration is only over a single element. However, the system of equations for each element is singular, and cannot be solved independently of the other elements, since we require solution continuity at inter-element nodes. This requires the formation of a connectivity matrix.
 
 \subsubsection{The Connectivity (Location) Matrix}
-Figure \ref{fig:FEmesh} shows a simple FE mesh, where the numbers illustrate the global node numbering. A mapping is required from the elemental perspective to this global mesh. The location matrix contains this information - each column of the location matrix gives the global node numbers that correspond to the local node numbers. The local nodes must always be numbered in a consistent manner (i.e. always clockwise or always counterclockwise) so that the Jacobian of the local to global transformation is positive. The first five columns of the location matrix for this mesh, for illustration, would be:
+Figure \ref{fig:FEmesh} shows a simple FE mesh, where the numbers illustrate the global node numbering. A location matrix is required to map from the elemental perspective to this global mesh. Each column of the location matrix gives the global node numbers that correspond to the local node numbers. 
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{../figures/FEmesh.pdf}
+\caption{Global node numbering in a simple FE mesh. Source:\newline {\tt http://opensees.berkeley.edu/wiki/index.php/}\newline{\tt Simply\_supported\_beam\_modeled\_with\_two\_dimensional\_solid\_elements}}
+\label{fig:FEmesh}
+\end{figure}
+
+The first five columns of the location matrix for this mesh would be:
 
 \beq
 \label{eq:LM}
@@ -438,16 +441,7 @@ LM=\begin{bmatrix}
 \end{bmatrix}
 \eeq
 
-where the nodes have been numbered counterclockwise.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.8\textwidth]{../figures/FEmesh.pdf}
-\caption{Global node numbering in a simple FE mesh. Source:\newline {\tt http://opensees.berkeley.edu/wiki/index.php/}\newline{\tt Simply\_supported\_beam\_modeled\_with\_two\_dimensional\_solid\_elements}}
-\label{fig:FEmesh}
-\end{figure}
-
-For structured meshed, this location matrix is fairly easy to determine, but for unstructured meshes where there is not necessarily a pattern to the node connectivity, would be provided by a meshing software such as Cubit.  Once this location matrix is known, the elemental systems of equations \(K_{ij}^ec_j^e=R_i^e\) can be assembled into the global system of equations \(K_{ij}c_j=R_i\). The fundamental reason why it is preferred to assemble the equations for each element individually, and {\tt then} assemble these into a global system, is that we have chosen shape functions that are only nonzero over an element and its immediate neighbors. This algorithm is inherently local until we get to the step requiring continuity, and it is hence natural to avoid unnecessary computations of zero integrals by only computing the integrals over each element, and then assembling these systems together at the end right before the numerical solve. For better illustration, several entries of \textbf{K} are assembled as follows for the location matrix given in Eq. \eqref{eq:LM}.
+where the nodes have been numbered counterclockwise. Once this location matrix is known, the elemental system of equations \(K_{ij}^ec_j^e=R_i^e\) can be assembled into the global system of equations \(K_{ij}c_j=R_i\). The fundamental reason why it is preferred to assemble the equations for each element individually, and {\tt then} assemble these into a global system, is that we have chosen shape functions that are only nonzero over an element and its immediate neighbors. For better illustration, several entries of \textbf{K} are assembled as follows for the location matrix given in Eq. \eqref{eq:LM}. The important thing to note here is that the formation of the global matrix is {\it additive}, in that there is not a one-to-one correspondence of entries in the location matrix to those in the global matrix (entries overlap).
 
 \beqa
 K(1, 1) =& k(1, 1)^{e=1}\\
@@ -479,7 +473,7 @@ R_1^{e=1} \\ R_2^{e=1}+R_1^{e=2}\\R_2^{e=2}+R_1^{e=3}\\R_2^{e=3}+R_1^{e=4}\\R_2^
 \end{bmatrix}
 \eeq
 
-To apply Dirichlet boundary conditions at nodes \(1\) and \(5\), the off-diagonal terms in the stiffness matrix are set to zero and the corresponding terms in the global load vector are set to the Dirichlet values. For instance, to impose Dirichlet conditions of \(T(node 1)=3.5\) and \(T(node 5) = 10.5\), the global matrix system becomes:
+To apply Dirichlet boundary conditions at nodes \(1\) and \(5\), the off-diagonal terms in the stiffness matrix are set to zero and the corresponding terms in the global load vector are set to the Dirichlet values. For instance, to impose Dirichlet conditions of \(T(\textrm{node} 1)=3.5\) and \(T(\textrm{node} 5) = 10.5\), the global matrix system becomes:
 
 \beq
 \textbf{K}=
@@ -505,7 +499,7 @@ The CG method requires computation of the residual:
 r^i=R-\textbf{K}a^i
 \eeq
 
-where \(i\) is the iteration index.Each update to the solution iterates is performed according to:
+where \(i\) is the iteration index. Each update to the solution iterates is performed according to:
 
 \beq
 \label{eq:CGUpdate}
