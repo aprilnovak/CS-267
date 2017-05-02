@@ -31,7 +31,6 @@ real(8)  :: startCSR           ! start CSR time
 real(8)  :: endCSR             ! end CSR time
 
 ! variables to define the global problem
-!real(8), dimension(:),    allocatable :: soln        ! global soln vector
 integer                               :: numprocs    ! number of processors
 integer                               :: rank        ! processor rank
 integer                               :: ddcnt       ! DD counter
