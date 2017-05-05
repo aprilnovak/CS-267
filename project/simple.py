@@ -34,12 +34,12 @@ nodes= [2, 4, 8, 16]
 time1 = [65.53/65.53, 65.53/16.33, 65.53/4.1, 65.53/1.084]
 time2 = [16.353/16.353, 16.353/4.148, 16.353/1.048, 16.353/0.3]
 time3 = [7.5244/7.5244, 7.5244/1.904, 7.5244/0.5, 7.5244/0.152]
-plt.plot(nodes, time1, 'o-', label='1 task/node')
-plt.plot(nodes, time2, 'o-', label='2 task/node')
-plt.plot(nodes, time3, 'o-', label='3 task/node')
-plt.xlabel('Number of Nodes')
-plt.ylabel('Speedup')
-plt.legend()
+#plt.plot(nodes, time1, 'o-', label='1 task/node')
+#plt.plot(nodes, time2, 'o-', label='2 task/node')
+#plt.plot(nodes, time3, 'o-', label='3 task/node')
+#plt.xlabel('Number of Nodes')
+#plt.ylabel('Speedup')
+#plt.legend()
 #fig = plt.figure()
 #ax1 = fig.add_subplot(111)
 #ax1.plot(mpi_2, time1_2_scaled, 'o-')
@@ -53,7 +53,15 @@ plt.legend()
 
 
 
+#speedup, 20,000 elements. mpinocomm removes the communications in the DD loop to estimate percentage of time spent communicating
+procs = [2, 4, 6, 8, 10, 12]
+nocomm = [17.32, 8.16, 5.51, 4.3, 3.22, 2.71]
+comm = [39.506, 20.049, 13.808, 10.32, 8.49, 6.43]
 
-
-plt.savefig('strong-mpi.png')
+plt.plot(procs, comm, 'o-', label='original')
+plt.plot(procs, nocomm, 'o-', label='no communication')
+plt.xlabel('Number of MPI Processes')
+plt.ylabel('Runtime (s)')
+plt.legend()
+plt.savefig('fig.png')
 

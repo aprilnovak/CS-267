@@ -1,20 +1,23 @@
 from matplotlib import pyplot as plt
 import numpy as np
+import sys
 
-#nodes = 101
-it = 1
+filename = sys.argv[1]
+#nodes = 1001
+it = 20
 
 raw = []
 intermediate = []
 data = []
-with open('output.txt', 'r') as f:
+with open(filename, 'r') as f:
 	for line in f:
 		raw = line.split(' ')
 		intermediate = [raw[i] for i in range(0, len(raw) - 1) if raw[i] != '']
 		if (len(intermediate) == 4):
 			numprocs = int(intermediate[0])
 			nodes = int(intermediate[1]) + 1
-			data.extend(intermediate[2:])
+			ddcnt = int(intermediate[2])
+			data.extend(intermediate[3:])
 		else:
 			data.extend(intermediate)
 
@@ -27,4 +30,5 @@ for i in range(0, len(data), it*nodes):
 	#plt.pause(0.1)
 
 #plt.plot(x, data[-nodes:])
-plt.show()
+#plt.show()
+#plt.savefig('interface1.png')

@@ -111,7 +111,7 @@ This final project involves the serial creation and parallelization of a finite 
 -k\frac{\partial^2 T}{\partial x^2}=\dot{q}
 \eeq
 
-where \(k\) is the thermal conductivity. While kept simple to allow this project to focus more on parallel algorithms than physics, this equation has very wide areas of applicability. From a nuclear engineering background, this equation describes the temperature distribution in nuclear fuel, which when coupled to neutron transport, can model many of the most important features of a nuclear reactor. This equation will be solved using domain decomposition (DD) methods in 1-D using MPI for controlling the coarse-grained DD algorithm and OpenMP to obtain fine-grained, loop-level parallelism. While application of DD to this equation is not new, I chose this topic because DD is one of the most well-established methods for parallel solutions to PDEs, and appears in my research using FE methods for fluid dynamics simulations.
+where \(k\) is the thermal conductivity. While kept simple to allow this project to focus more on parallel algorithms than physics, this equation has very wide areas of applicability. From a nuclear engineering background, this equation describes the temperature distribution in nuclear fuel, which when coupled to neutron transport, can model many of the most important features of a nuclear reactor. This equation will be solved using domain decomposition (DD) methods in 1-D using MPI for controlling the coarse-grained DD algorithm. While application of DD to this equation is not new, I chose this topic because DD is one of the most well-established methods for parallel solutions to PDEs, and appears in my research using FE methods for fluid dynamics simulations.
 
 Due to the second derivative present, two boundary conditions are needed (one on each end of the 1-D domain). This presents the fundamental difficulty of parallelizing a DD solution - if the domain is divided amongst different parallel processes, then the equations cannot be solved unless guesses are made for the conditions on the interface boundaries that are created upon decomposition (for the purposes of this report, ``interface'' is defined as the nodes that are shared by more than one domain). But the solution is not known {\t a priori}, so any DD solution will require an iterative method, where an initial guess for the interface boundary conditions is continually improved until all domains ``agree'' on the values at the interface locations. DD is \textit{not} embarrassingly parallel, and if the number of iterations required to converge to the true global solution is very large, then the parallel runtime can easily be longer than the serial runtime. This interesting feature was not present in any of our homework assignments - while parallel code in homeworks could be slower due to communication overhead than the serial code, adding {\it iterations} places a stricter constraint on the success of a parallel algorithm. Much effort was devoted in this project to means by which the number of parallel iterations could be reduced to make DD a viable method.
 
@@ -149,9 +149,122 @@ and the load vector is:
 R_{i}=\int_{\Omega}\dot{q}\phi_i(x)dx
 \eeq
 
-Additional details relating to this weak formulation necessary for numerical implementation, such as quadrature and local-to-global mappings, are contained in the Appendix. In order to solve this discrete system, it is much easier to solve the system over each element individually and then assemble the local information together into a single, large, matrix system. A connectivity matrix is used to describe how the local element nodes map into the global system. The formation of this connectivity matrix is also described in the Appendix. Once the boundary conditions have been incorporated into the matrix system, as described in the Appendix, the matrix system can be solved by your favorite linear algebra routine. For this assignment, the Conjugate Gradient (CG) method is selected to solve this symmetric system. To solve a matrix system \(\textbf{K}a=R\) by the CG method requires rewriting the governing equation as the minimization of a potential \(\Pi\). The exact solution is obtained by taking the gradient of this potential with respect to each of the expansion coefficients in the solution vector and setting that gradient equal to zero. The minimizer to the potential \(\Pi\) is also a solution to the matrix system. Details of the CG method are contained in the Appendix.
+In order to solve this discrete system, it is much easier to solve the system over each element individually and then assemble the local information together into a single, large, matrix system. 
 
-This concludes the theoretical discussion of the FEM applied to this simple 1-D heat equation. The next section discusses steps taken to obtain a fast serial implementation of this algorithm, and will go into more detail regarding exactly how this method can be implemented in code. Although the heat equation is only solved in 1-D, no shortcuts are taken with the development of the code. That is, I assume nothing about the structure of the matrices or boundary conditions that would invalidate natural extension to higher dimensions.
+\(K_{ij}\) shown in Eq. \eqref{eq:k} consists of the multiplication of the derivatives of \(\phi_i(x)\) with \(\phi_j(x)\). If these shape functions are defined over the {\it entire} domain, then \(K_{ij}\) will be dense (not an advantage from either memory or flops). If we choose these shape functions to be nonzero only over a single small region of the domain instead, then the product of cross terms will be zero for most of the matrix, giving a sparse matrix. The matrix equation \(K_{ij}c_j=R_i\) can be written for each individual element as \(K_{ij}^ec_j^e=R_i^e\), with a post-processing step that takes the system of equations for each element and connects them all together to enforce solution continuity at element interfaces. 
+
+\beq
+K_{ij}^e=\int_{\Omega^e}\frac{\partial \phi_j(x)}{\partial x}k\frac{\partial\phi_i(x)}{\partial x}dx-\int_{\Gamma^e}k\frac{\partial \phi_j(x)}{\partial x}\phi_i(x)\cdot\hat{n}dx
+\eeq
+
+\beq
+R_{i}^e=\int_{\Omega^e}\dot{q}\phi_i(x)dx
+\eeq
+
+The system of equations for each element cannot be solved independently of the other elements since we require solution continuity at inter-element nodes. This requires the formation of a connectivity matrix. A connectivity matrix is used to describe how the local element nodes map into the global system. Figure \ref{fig:FEmesh} shows a simple FE mesh, where the numbers illustrate the global node numbering. A location matrix is required to map from the elemental perspective to this global mesh. 
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{../figures/FEmesh.pdf}
+\caption{Global node numbering in a simple FE mesh. Source:\newline {\tt http://opensees.berkeley.edu/wiki/index.php/}\newline{\tt Simply\_supported\_beam\_modeled\_with\_two\_dimensional\_solid\_elements}}
+\label{fig:FEmesh}
+\end{figure}
+
+Each column of the location matrix corresponds to one element, and gives the global node numbers that correspond to the local node numbers. The first five columns of the location matrix for this mesh would be:
+
+\beq
+\label{eq:LM}
+LM=\begin{bmatrix}
+1 & 2 & 3 & 4 & 5 & \cdots\\
+2 & 3 & 4 & 5 & 6 & \cdots\\
+11 & 12 & 13 & 14 & 15 & \cdots\\
+10 & 11 & 12 & 13 & 14 & \cdots\\
+\end{bmatrix}
+\eeq
+
+where the nodes have been numbered counterclockwise. Once this location matrix is known, the elemental system of equations can be assembled into the global system of equations. For illustration, several entries of \textbf{K} are assembled as follows for the location matrix given in Eq. \eqref{eq:LM}. The important thing to note here is that the formation of the global matrix is {\it additive}, in that there is not a one-to-one correspondence of entries in the location matrix to those in the global matrix (entries overlap). 
+
+\beqa
+K(1, 1) =& k(1, 1)^{e=1}\\
+K(1, 2) =& k(1, 2)^{e=1}\\
+K(2, 2) =& k(2, 2)^{e=1}+k(1, 1)^{e=2}\\
+K(2, 11) =& k(2, 3)^{e=1}\\
+K(12, 12) =& k(3, 3)^{e=2}+k(4, 4)^{e=3}\\
+\eeqa
+
+where a new notation of lowercase \(k\) representing \(K^e\) is used. \(e\) superscripts give the element numbers corresponding to the entries of the local stiffness matrix \(k\). Any Dirichlet boundary conditions must now be applied within the matrix system (Neumann boundary conditions have naturally been applied by the form of the perimeter integral in Eq. \eqref{eq:k}) by ``removing'' Dirichlet nodes from the solve. For a 1-D domain consisting of three linear elements (two nodes per element), the global matrix system \(\textbf{K}c=\textbf{R}\) before imposition of Dirichlet boundary conditions is:
+
+\beq
+\begin{bmatrix}
+k(1, 1)^{e=1} & k(1, 2)^{e=1} & 0 & 0\\
+k(2, 1)^{e=1} & k(2, 2)^{e=1}+k(1, 1)^{e=2} & k(1, 2)^{e=2} & 0\\
+0 & k(2, 1)^{e=2} & k(2, 2)^{e=2}+k(1, 1)^{e=3} & k(1, 2)^{e=3}\\
+0 & 0 & k(2, 1)^{e=3} & k(2, 2)^{e=3}\\
+\end{bmatrix}
+\begin{bmatrix}
+c_1\\c_2\\c_3\\c_4
+\end{bmatrix}
+=\begin{bmatrix}
+r(1)^{e=1} \\ r(2)^{e=1}+r(1)^{e=2}\\r(2)^{e=2}+r(1)^{e=3}\\r(2)^{e=3}\\
+\end{bmatrix}
+\eeq
+
+To apply Dirichlet boundary conditions at nodes \(1\) and \(4\), in rows 1 and 4, the off-diagonal terms are set to zero and the on-diagonal terms to unity. For instance, to impose Dirichlet conditions of \(T(\textrm{node} 1)=3.5\) and \(T(\textrm{node} 5) = 10.5\), the global matrix system becomes:
+
+\beq
+\begin{bmatrix}
+1 & 0 & 0 & 0\\
+k(2, 1)^{e=1} & k(2, 2)^{e=1}+k(1, 1)^{e=2} & k(1, 2)^{e=2} & 0\\
+0 & k(2, 1)^{e=2} & k(2, 2)^{e=2}+k(1, 1)^{e=3} & k(1, 2)^{e=3}\\
+0 & 0 & 0 & 1\\
+\end{bmatrix}
+\begin{bmatrix}
+c_1\\c_2\\c_3\\c_4
+\end{bmatrix}
+=\begin{bmatrix}
+3.5\\ r(2)^{e=1}+r(1)^{e=2}\\r(2)^{e=2}+r(1)^{e=3}\\10.5\\
+\end{bmatrix}
+\eeq
+
+Then, the matrix system can be solved by your favorite linear algebra routine. For this assignment, the Conjugate Gradient (CG) method is selected to solve this symmetric system. To solve a matrix system \(\textbf{K}a=R\) by the CG method requires rewriting the governing equation as the minimization of a potential \(\Pi\). The exact solution is obtained by taking the gradient of this potential with respect to each of the expansion coefficients in the solution vector and setting that gradient equal to zero. The CG method requires computation of the residual:
+
+\beq
+r^i=R-\textbf{K}a^i
+\eeq
+
+where \(i\) is the iteration index. Each update to the solution iterates is performed according to Eq. \eqref{eq:CGUpdate}, where the update scales by \(z^i\) as shown in Eq. \eqref{eq:ZUpdateCG}.
+
+\beq
+\label{eq:CGUpdate}
+a^{i+1}=a^i+\lambda^iz^i
+\eeq
+
+\beq
+\label{eq:ZUpdateCG}
+z^i=r^i+\theta^iz^{i-1}
+\eeq
+
+\(\theta^i\) is a parameter chosen such that \(z^i\) is \(\textbf{K}\)-conjugate to \(z^{i-1}\), or:
+
+\beq
+\label{eq:kconjugate}
+z^{T,i}\textbf{K}z^{i-1}=0
+\eeq
+
+In other words, the search direction is a combination of a move in the reverse direction of the gradient (method of steepest descent) plus a motion perpendicular to that direction. This helps to avoid duplicate searching in the same general area. For the very first iteration, it is common to select \(z^1=r^1\). Plugging in Eq. \eqref{eq:ZUpdateCG} to Eq. \eqref{eq:kconjugate} gives:
+
+\beq
+\theta^i=-\frac{r^{T,i}\textbf{K}z^{i-1}}{z^{T,i-1}\textbf{K}z^{i-1}}
+\eeq
+
+Plugging in Eq. \eqref{eq:CGUpdate} into the potential function and taking the partial derivative with respect to \(\lambda^i\), the optimal \(\lambda^i\) is:
+
+\beq
+\label{eq:UpdateCG}
+\lambda^i=\frac{z^{T,i}r^i}{z^{T,i}\textbf{K}z^i}
+\eeq
+
+This concludes the theoretical discussion of the FEM applied to this simple 1-D heat equation. The next section discusses steps taken to obtain a fast serial implementation of this algorithm, and will go into more detail regarding exactly how this method can be implemented. Although the heat equation is only solved in 1-D, no shortcuts are taken with the development of the code. That is, I assume nothing about the structure of the matrices or boundary conditions that would invalidate natural extension to higher dimensions.
 
 \section{Serial Implementation}
 
@@ -227,12 +340,8 @@ Because the cost of a matrix-vector product is roughly \(\mathscr{O}(N)\), the c
 Hence, theoretically (provided the communication costs don't dominate the parallel algorithm), the speedup will be {\it greater} than linear - the parallel performance will continually improve with higher numbers of parallel processes! 
 
 
-
-
-
-
 \section{Parallel Implementation}
-This section discusses parallelization of the serial algorithm. In general, there are two very different parallelization strategies here - the first involves domain decomposition amongst parallel processes, where each parallel process then runs a complete FEM solution, with iteration between threads until all threads agree on the values of the solution at the interfaces. Alternatively, a single FEM problem can be run (with no need to iterate boundary conditions because the domain is not decomposed), and the work for the single FEM solve distributed amongst parallel instances. The problem with this second method is that the iterative solution occurs with a {\tt do while} loop. This limits the overall CG solver to effectively serial implementation (a future iteration cannot be done at the same time as an earlier iteration because they are not independent), so DD is more effective. In addition, because the CG method scales as \(\mathscr{O}(N^2)\) (without good preconditioning), the resulting smaller matrix systems formed will lead to quadratic speedup. DD is also useful because the domain may be so large and the problem information so large that it cannot fit into the memory of a single processor. 
+This section discusses parallelization of the serial algorithm. In general, there are two very different parallelization strategies here - the first involves DD amongst parallel processes, where each parallel process then runs a complete FEM solution, with iteration between threads until all threads agree on the values of the solution at the interfaces. Alternatively, a single FEM problem can be run (with no need to iterate boundary conditions because the domain is not decomposed), and the work for the single FEM solve distributed amongst parallel instances. The problem with this second method is that the iterative solution occurs with a {\tt do while} loop. This limits the overall CG solver to effectively serial implementation (a future iteration cannot be done at the same time as an earlier iteration because they are not independent), so DD is more effective. In addition, because the CG method scales as \(\mathscr{O}(N^2)\) (without good preconditioning), the resulting smaller matrix systems formed will lead to quadratic speedup. DD is also useful because the domain may be so large and the problem information so large that it cannot fit into the memory of a single processor. 
 
 There are many variants of DD algorithms, the earliest being Schwarz methods developed to verify analytical solutions to differential equations on strange-shaped domains that could be decomposed into simpler shapes. It appears that most DD methods can be divided into two general categories:
 
@@ -258,7 +367,7 @@ There are several possible algorithms for solving the interface problem. A maste
 
 The interface problem method, where each domain communicates with at most two other domains (its left and right neighbors), is pursued in this project. This reduces the number of broadcast operations required and also has the potential to reduce overall runtime because each processor at most communicates with two other processors and only one process is idle during the interface solve. 
 
-Extra pre-processing steps are necessary to divide the domain into as-close-as-possible equal-sized domains and prescribe initial guesses for the interface boundary conditions. Then, in a {\tt while} loop, the processes solve their domains individually. Each process (except rank \(P-1\)) sends an updated boundary condition to their right neighbor. Each process (except rank 0) receives this value, computes an interface solution, and sends an updated boundary condition to their left neighbor. The following pseudo code shows the MPI implementation of this algorithm. Because the Poisson equation transmits information at infinite speeds, convergence of the domain decomposition algorithm fundamentally has to be based on the errors computed at {\it all} interfaces. That is, a process cannot finish in less iterations than some other process, since the problem is inherently global. Hence, a barrier is required before beginning the next iteration loop. A DD iteration tolerance of 0.00001 is used for all results shown. Because OpenMP is used to coordinate fine-grained parallelism mostly within the CG solver, this level of parallelism is not shown below.
+Extra pre-processing steps are necessary to divide the domain into as-close-as-possible equal-sized domains and prescribe initial guesses for the interface boundary conditions. Then, in a {\tt while} loop, the processes solve their domains individually. Each process (except rank \(P-1\)) sends an updated boundary condition to their right neighbor. Each process (except rank 0) receives this value, computes an interface solution, and sends an updated boundary condition to their left neighbor. The following pseudo code shows the MPI implementation of this algorithm. Because the Poisson equation transmits information at infinite speeds, convergence of the DD algorithm fundamentally has to be based on the errors computed at {\it all} interfaces. That is, a process cannot finish in less iterations than some other process, since the problem is inherently global. Hence, a barrier is required before beginning the next iteration loop. A DD iteration tolerance of 0.00001 is used for all results shown.
 
 \begin{lstlisting}
 ! divide problem into domains and assign to processes ...
@@ -316,7 +425,7 @@ The pre-processing step of computing DD information such as the domain edge poin
 
 To be successful, the parallel implementation must converge in less that \(m^2\) DD iterations. The solution over the domain, given a constant heat source and thermal conductivity, will be parabolic. But, assuming we don't know this information, an initial guess for the interface boundary conditions was selected by assuming a straight-line solution between the two endpoints. Iterative global solutions are plotted in Fig. \ref{fig:interface}(a) for four MPI processes for an interface width of two elements (i.e. each interface problem solves a 2-element domain, centered on the interface boundary between the decomposed domains). Each dashed line represents a DD iteration (where interface BCs are updated between each iteration), with only every {\it 20} iterations shown. With this initial boundary condition guess, 1017 DD iterations are required, which is substantially more than our limit of \(5^2=25\). 
 
-The first approach taken to reduce the total number of DD iterations was to used a wider interface problem (i.e. increase the white-skinned section of giraffe skin). That is, the width of each domain stays the same, but the interface regions becomes wider. This leads to faster convergence because the solution will change in proportion to the difference in the boundary conditions at the edges of the interface region. Results obtained for the same problem with an interface width of 10 elements is shown in Fig. \ref{fig:interface}(b). With this wider interface, only 234 domain decomposition iterations are required (still too many), but the solution obtained is now incorrect! The larger the interface, the greater the magnitude of the {\it error} in the initial boundary condition guesses (because the straight-line solution is incorrect), and choosing a wider interface applies this error over a wider range. For this particular example, this results in a sharp corner developing in the solution. This interesting result shows that the interface region must be kept very small, which does not help solve the too-many-DD-iterations problem.
+The first approach taken to reduce the total number of DD iterations was to used a wider interface problem (i.e. increase the white-skinned section of giraffe skin). That is, the width of each domain stays the same, but the interface regions becomes wider. This leads to faster convergence because the solution will change in proportion to the difference in the boundary conditions at the edges of the interface region. Results obtained for the same problem with an interface width of 10 elements is shown in Fig. \ref{fig:interface}(b). With this wider interface, only 234 DD iterations are required (still too many), but the solution obtained is now incorrect! The larger the interface, the greater the magnitude of the {\it error} in the initial boundary condition guesses (because the straight-line solution is incorrect), and choosing a wider interface applies this error over a wider range. For this particular example, this results in a sharp corner developing in the solution. This interesting result shows that the interface region must be kept very small, which does not help solve the too-many-DD-iterations problem.
 
 \begin{figure}[H]
         \centering
@@ -337,11 +446,9 @@ The first approach taken to reduce the total number of DD iterations was to used
 The next approach taken to reduce the number of DD iterations was to improve the initial boundary conditions guesses by solving a coarse-mesh problem. For a five-process solve, the coarse mesh would consist of five elements, with nodes at the same locations as the domain interfaces. After the rank 0 process computes this solution (the algorithm for which is identical to the larger solves, but with fewer elements), the better interface initial conditions are broadcast to all other processes, and then every process continues with the DD algorithm described earlier. This change produced a {\it huge} improvement. For the same iteration tolerance, only one DD iteration is required! Hence, a major take-away from this project is that parallel implementations that require iteration amongst processes can easily be fundamentally slower than serial implementations (not just because of communication overhead, but rather the introduction of an iterative algorithm into a serial code that did not require such iteration), even if {\it theoretically} they should be faster because the ODE solver scales as \(\mathscr{O}(N^2)\). For this project, the use of this better inter-processor initial condition was used to yield a successful implementation. In practice, many codes that use DD will perform a coarse mesh solution that is also used for preconditioning to further enhance the parallel viability of an iterative DD method.
 
 \section{Implementation Results}
-This section discusses implementation results with the serial, MPI, and MPI plus OpenMP implementations. To keep comparisons fair, the serial case uses the same initial condition as the MPI cases, and a number of ``pseudo processes'' are passed on the command line to the serial case to compute the coarse mesh initial conditions (which is then input as an initial guess to the CG solver). When using the same initial condition, the serial and parallel implementations perform almost the same number of cumulative CG iterations (because with the better initial condition only one domain decomposition iteration is needed). The only difference is that for the parallel implementations, each process performs a subset of the iterations. This section is divided into two main parts, the first discussing parallelization with MPI alone, and the second with MPI and OpenMP combined. All results are obtained on Edison, and output of the results is turned off (since writing the output file is a significant portion of the runtime when included).
+This section discusses implementation results obtained once parallelizing using MPI. To keep comparisons fair, the serial cases use the same initial conditions as the MPI cases. A number of ``pseudo processes'' are passed on the command line to the serial case to compute the coarse mesh initial conditions (which is input as an initial guess to the CG solver). When using the same initial condition, the serial and parallel implementations perform the same number of cumulative CG iterations (because with the better initial condition only one DD iteration is needed). The only difference is that for the parallel implementations, each process performs a subset of the iterations. All results are obtained on Edison.
 
-\subsection{MPI Parallelization}
-
-Fig. \ref{fig:speedupMPI} shows the speedup as a function of the number of MPI processes for a single node with 20,000 elements for (a) the raw data, and (b) the speedup scaled by \(m^2\). Because the speedup scales as \(m^2/D\), and only one DD iteration occurs for this test, the speedup is shown in (b) scaled by \(m^2\). Scaling by \(m^2\) changes quadratic speedup behavior to linear in order to illustrate the efficiency of the parallel algorithm {\it independent} of the scaling benefit awarded by the algorithm selection. As can be seen, although the speedup is very large, there is still a lot of room for improvement in the parallel algorithm, since the speedup, scaled by \(m^2\) appears to decrease linearly. This decreasing trend could indicate that my estimates for cost are overly simplified (in which case scaling by \(m^2\) is meaningless), on the other hand. In terms of the absolute speedup, there is no ``optimal'' number of MPI processes per node, since the greater the number, the greater the performance. However, from (b) below, it would appear that 3 MPI tasks per node would be optimal, since this combines a speedup of about 40 before the large drop in speedup when normalized (again assuming scaling by \(m^2\) is meaningful). 
+Fig. \ref{fig:speedupMPI} shows the speedup as a function of the number of MPI processes for a single node with 20,000 elements. The speedup is computed as the serial runtime to the parallel runtime for the given number of MPI processes. Because the speedup scales as \(m^2/D\), and only one DD iteration occurs for this test, the speedup is shown in (b) scaled by \(m^2\). Scaling by \(m^2\) changes quadratic speedup behavior to linear in order to illustrate the efficiency of the parallel algorithm {\it independent} of the scaling benefit awarded by the algorithm selection. As can be seen, although the speedup is very large, there is still a lot of room for improvement in the parallel algorithm, since the speedup, scaled by \(m^2\) appears to decrease linearly. This decreasing trend could indicate that my estimates for cost are overly simplified (in which case scaling by \(m^2\) is meaningless), on the other hand. In terms of the absolute speedup, there is no ``optimal'' number of MPI processes per node, since the greater the number, the greater the performance. However, from (b) below, it would appear that 3 MPI tasks per node would be optimal, since this combines a speedup of about 40 before the large drop in speedup when normalized (again assuming scaling by \(m^2\) is meaningful). 
 
 \begin{figure}[H]
         \centering
@@ -359,7 +466,18 @@ Fig. \ref{fig:speedupMPI} shows the speedup as a function of the number of MPI p
         \label{fig:speedupMPI}
 \end{figure}
 
-Fig. \ref{fig:scalingMPI} shows the (a) weak and (b) strong scaling obtained for the MPI parallelization. Scaling results are normalized relative to the runtime for the smallest recorded number of MPI processes used (in this case 2). For the weak scaling results, \(40000m\) particles are run for \(m\) MPI processes (i.e. the problem size is increased proportional to the number of processes). Results are shown for 1-3 MPI tasks per node. As can be seen, excellent weak scaling is obtained - by increasing the problem size proportional to the number of MPI processes, the speedup does not deviate from 1 (indicating that the algorithm behaves just as well as the problem size is scaled proportional to the number of processes). There also does not appear to be any clear optimal choice in the number of MPI tasks per node when judged using weak scaling. Strong scaling results are obtained using a fixed number of 100,000 elements and increasing the number of MPI processes. As can be seen, the strong scaling performance is excellent, and roughly increases as \(N^2\) due to the scaling of the CG method.
+To estimate the runtime consumed by communication between MPI Processes, the very good coarse mesh initial guess is removed (such that the number of DD iterations again becomes large). Previously, the good initial guess gives only one DD iteration, which is not statistically useful for estimating communication. For 5,000 elements and the poor initial guess, roughly \(mN\) DD iterations are performed, where \(m\) is the number of MPI processes and \(N\) the number of elements. All communication within the DD loop can be removed (which will of course give incorrect results) but the number of DD loop iterations set equal to the number required with correct communications in order to evaluate the fraction of runtime that is spent in MPI communications. A switch-case statement is inserted into the code to select the exact same number of DD iterations as the unmodified code to obtain as-fair-as-possible comparison. Then, all communications within the DD loop are commented out, and the same tests run. Fig. \ref{fig:nocomm} shows the decrease in runtime once the communication is removed. As can be seen, communication accounts for roughly half of the runtime of the DD algorithm. However, this communication cannot be entirely removed, or else the domains would solve independently, and would not obtain the correct solution. 
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{../figures/nocomm.png}
+\caption{Runtime for 20,000 elements both with and without communications within the DD iteration loop.}
+\label{fig:nocomm}
+\end{figure}
+
+Reducing communication is difficult, because the simplicity of the interface solve does not justify overlapping computation with communication (each interface solve only computes {\it one} double precision number (since the solution for a two-element FE mesh with boundary conditions only involves solving for one constant). A smaller fraction of the runtime could be devoted to communication if more work could be allotted to the interface solve part. Currently, each process communicates with about 2 other processes just to compute one value. If the interface regions were wider, then both less DD iterations would be required and less communication per flop. However, as illustrated in the previous section, wider interface regions give incorrect results. With more time remaining, it would be possible to use small interface problems during the first phase of the solve until the solution becomes relatively smooth, and then transition to a wider interface to accelerate DD iterations. 
+
+Fig. \ref{fig:scalingMPI} shows the (a) weak and (b) strong scaling obtained for the MPI parallelization. Scaling results are normalized relative to the runtime for the smallest recorded number of MPI processes used (in this case 2). For the weak scaling results, \(40000m\) elements are run for \(m\) MPI processes (i.e. the problem size is increased proportional to the number of processes). Results are shown for 1-3 MPI tasks per node. As can be seen, excellent weak scaling is obtained - by increasing the problem size proportional to the number of MPI processes, the speedup does not deviate from 1 (indicating that the algorithm behaves just as well as the problem size is scaled proportional to the number of processes). There also does not appear to be any clear optimal choice in the number of MPI tasks per node when judged using weak scaling. Strong scaling results are obtained using a fixed number of 100,000 elements and increasing the number of MPI processes. As can be seen, the strong scaling performance is excellent, and roughly increases as \(N^2\) due to the scaling of the CG method. When reporting the strong scaling for an algorithm that scales as \(N^2\), it is important to report the number of elements used, since the speedup will be even better for larger numbers of elements.
 
 \begin{figure}[H]
         \centering
@@ -377,9 +495,29 @@ Fig. \ref{fig:scalingMPI} shows the (a) weak and (b) strong scaling obtained for
         \label{fig:scalingMPI}
 \end{figure}
 
-\subsection{OpenMP Parallelization}
+There are several ways in which the algorithm could be further improved to reduce communication and improve load balancing. As just discussed, wider interface problems would reduce the communication to computation ratio, and make the algorithm more computation-intensive. This would move the code to the ``right'' on the roofline model, and likely improve performance. A wider interface problem could be pursued without inducing errors in the solution if the wider interface is solved with recursive DD, in that more than one process solves each interface region. The extra communication required with this approach, however, might invalidate it for the simple 1-D domain investigated here, but could be useful in higher dimensions when the interface accounts for a smaller portion of the total domain.
 
-This sectiion discusses the results obtained when combining the MPI parallelization discussed in the previous section with OpenMP fine-grained parallelism.
+Second, the DD algorithm is assumed converged when the relative difference in the interface boundary condition values changes little from one iteration to the next. While a {\it global} convergence such as this is required for Poisson problems where the problem is inherently global, it is possible to rewrite the algorithm such that convergence can occur for some processes, but not for others. For example, consider a five-process domain. Suppose that the initial guess was already fairly good in the domains belonging to processes 0 and 1, but very bad in the rest of the domain. The first two processes might converge in only a few iterations, but due to the global structure of my algorithm, they would need to continue iterating along with all of the other processes until {\it all} domains converge. Contrarily, a modification could be made to this algorithm such that processes that converge can be ``reallocated'' to the remaining, un-converged part of the domain. That is, once processes 0 and 1 converge, the remaining part of the domain could be re-divided amongst the five processes, and DD continue with different domains. Then, after a certain number of iterations, the original DD returned to to ensure that the solution in processes 0 and 1 is still accurate given further iterations in the rest of the domain. This algorithm might be called ``adaptive domain decomposition.'' 
+
+\section{Conclusions}
+I found this project topic to be very useful for my research, since DD is a common algorithm used to solve PDEs on high performance computers. This project revealed important aspects of DD, including:
+
+\begin{enumerate}
+\item While serial algorithms should be made to scale as \(\mathscr{O}(N)\) whenever possible, if poorer serial scaling is obtained, such as \(\mathscr{O}(N^2)\), then the impact of parallelization is even greater. Instead of linear speedup, quadratic, cubic, etc. speedup can be obtained. 
+\item Parallel algorithms that introduce iterations into a non-iterative serial algorithm can potentially give much worse performance if the number of these iterations are large. For this project, using a good initial iterative solution guess (a similar effect to preconditioning) was used to obtain appropriately small numbers of DD iterations.
+\item Finally, the decoupling of the decomposed domains has an important effect on the possible parallelization algorithms. In 1-D, both a master-slave approach and a shared-interface approach are possible, with the shared-interface approach achieving better load balancing. In higher dimensions, recursive DD could be used to shared solution to the interface problems among multiple MPI processes.
+\end{enumerate}
+
+And, I learned some practical code development wisdom as well, including:
+
+\begin{enumerate}
+\item Create a good Makefile early-on - I wasted a lot of time when working with Fortran modules by forgetting to compile one module that depended on others, and then struggling to realize why results were not as expected.
+\item It is effective to first write a serial implementation that ``simulates'' parallelism by looping over the number of expected processes. This was a good starting point for parallelization, because it mostly involved removing loops and indexing by rank instead of loop iteration. In the assignments, we often started parallelizing without first developing a pseudo-parallel serial code, which I find to be more difficult.
+\item Implement modern programming practices such as object-orientation and modularity as soon as possible. But, only you implement this, previous code that didn't use modules will likely be faster just to rewrite using the modules than to back-introduce modules into the code.
+\end{enumerate}
+
+\section{Running the Code}
+Included in the {\tt zip} file submitted with this PDF are all of the source files, a Makefile for compilation, and an example job script that runs both the MPI code and the serial code for 20,000 elements for 2 to 24 MPI processes on a single node with domain length of 1, left boundary condition value of 2, and right boundary condition value of 3. To turn on output file writing to view the results, comment out the {\tt if (.false.)} clause towards the end of {\tt cmain.f90} (the MPI-parallelized version) and {\tt serial.f90} (the serial version). 
 
 
 
@@ -392,141 +530,7 @@ This sectiion discusses the results obtained when combining the MPI parallelizat
 
 
 
-\section{Appendix}
-\subsection{Details of the Finite Element Method}
-This section contains additional discussion of the FEM that is necessary to fully understand the code developed, but not necessary to appreciate parallelization algorithms.
 
-\subsubsection{The Element-Wise Weak Form}
-The stiffness matrix shown in Eq. \eqref{eq:k} consists of the multiplication of the derivatives of \(\phi_i(x)\) with \(\phi_j(x)\). If these shape functions are defined over the {\it entire} domain, then the stiffness matrix will be a dense matrix. On the other hand, if we choose these shape functions to be nonzero only over a single small region of the domain, then the product of cross terms will be zero for most of the matrix, giving a sparse matrix. Hence, the expansion for the solution and test function for a {\it single} element (``element'' is used in this sense as a small region of the domain) becomes:
 
-\beq
-T_h^e=\sum_{j=1}^{n_{en}}c_j^e\phi_j^e(x)
-\eeq
-
-where the \(e\) superscript indicates the element and \(n_{en}\) are the number of element nodes. A nodal basis is selected for the shape functions. This means that, over a single element, the shape functions are unity at their corresponding node, and zero at the other nodes. The matrix equation \(K_{ij}c_j=R_i\) can be written for each individual element as \(K_{ij}^ec_j^e=R_i^e\), with a post-processing step that takes the system of equations for each element and connects them all together to enforce solution continuity at element interfaces. 
-
-\beq
-K_{ij}^e=\int_{\Omega^e}\frac{\partial \phi_j(x)}{\partial x}k\frac{\partial\phi_i(x)}{\partial x}dx-\int_{\Gamma^e}k\frac{\partial \phi_j(x)}{\partial x}\phi_i(x)\cdot\hat{n}dx
-\eeq
-
-\beq
-R_{i}^e=\int_{\Omega^e}\dot{q}\phi_i(x)dx
-\eeq
-
-These integrals are defined such that the domain of integration is only over a single element. However, the system of equations for each element is singular, and cannot be solved independently of the other elements, since we require solution continuity at inter-element nodes. This requires the formation of a connectivity matrix.
-
-\subsubsection{The Connectivity (Location) Matrix}
-Figure \ref{fig:FEmesh} shows a simple FE mesh, where the numbers illustrate the global node numbering. A location matrix is required to map from the elemental perspective to this global mesh. Each column of the location matrix gives the global node numbers that correspond to the local node numbers. 
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.8\textwidth]{../figures/FEmesh.pdf}
-\caption{Global node numbering in a simple FE mesh. Source:\newline {\tt http://opensees.berkeley.edu/wiki/index.php/}\newline{\tt Simply\_supported\_beam\_modeled\_with\_two\_dimensional\_solid\_elements}}
-\label{fig:FEmesh}
-\end{figure}
-
-The first five columns of the location matrix for this mesh would be:
-
-\beq
-\label{eq:LM}
-LM=\begin{bmatrix}
-1 & 2 & 3 & 4 & 5 & \cdots\\
-2 & 3 & 4 & 5 & 6 & \cdots\\
-11 & 12 & 13 & 14 & 15 & \cdots\\
-10 & 11 & 12 & 13 & 14 & \cdots\\
-\end{bmatrix}
-\eeq
-
-where the nodes have been numbered counterclockwise. Once this location matrix is known, the elemental system of equations \(K_{ij}^ec_j^e=R_i^e\) can be assembled into the global system of equations \(K_{ij}c_j=R_i\). The fundamental reason why it is preferred to assemble the equations for each element individually, and {\tt then} assemble these into a global system, is that we have chosen shape functions that are only nonzero over an element and its immediate neighbors. For better illustration, several entries of \textbf{K} are assembled as follows for the location matrix given in Eq. \eqref{eq:LM}. The important thing to note here is that the formation of the global matrix is {\it additive}, in that there is not a one-to-one correspondence of entries in the location matrix to those in the global matrix (entries overlap).
-
-\beqa
-K(1, 1) =& k(1, 1)^{e=1}\\
-K(1, 2) =& k(1, 2)^{e=1}\\
-K(2, 2) =& k(2, 2)^{e=1}+k(1, 1)^{e=2}\\
-K(2, 11) =& k(2, 3)^{e=1}\\
-K(12, 12) =& k(3, 3)^{e=2}+k(4, 4)^{e=3}\\
-\eeqa
-
-where a new notation of lowercase \(k\) representing \(K^e\) is used.
-
-\subsubsection{Boundary Conditions}
-Once the global matrix has been assembled, any Dirichlet boundary conditions must be applied (Neumann boundary conditions have naturally been applied by the form of the perimeter integral in Eq. \eqref{eq:k}). Dirichlet boundary conditions are strictly imposed by removing the Dirichlet nodes from the global matrix system. For a 1-D domain consisting of four linear elements (two nodes per element), the global matrix system \(\textbf{K}c=\textbf{R}\) before imposition of Dirichlet boundary conditions is:
-
-\beq
-\textbf{K}=
-\begin{bmatrix}
-k(1, 1)^{e=1} & k(1, 2)^{e=1} & 0 & 0 & 0\\
-k(2, 1)^{e=1} & k(2, 2)^{e=1}+k(1, 1)^{e=2} & k(1, 2)^{e=2} & 0 & 0\\
-0 & k(2, 1)^{e=2} & k(2, 2)^{e=2}+k(1, 1)^{e=3} & k(1, 2)^{e=3} & 0\\
-0 & 0 & k(2, 1)^{e=3} & k(2, 2)^{e=3}+k(1, 1)^{e=4} & k(1, 2)^{e=4}\\
-0 & 0 & 0 & k(2, 1)^{e=4} & k(2, 2)^{e=4}\\
-\end{bmatrix}
-\eeq
-
-\beq
-\textbf{R}=\begin{bmatrix}
-R_1^{e=1} \\ R_2^{e=1}+R_1^{e=2}\\R_2^{e=2}+R_1^{e=3}\\R_2^{e=3}+R_1^{e=4}\\R_2^{e=4}\\
-\end{bmatrix}
-\eeq
-
-To apply Dirichlet boundary conditions at nodes \(1\) and \(5\), the off-diagonal terms in the stiffness matrix are set to zero and the corresponding terms in the global load vector are set to the Dirichlet values. For instance, to impose Dirichlet conditions of \(T(\textrm{node} 1)=3.5\) and \(T(\textrm{node} 5) = 10.5\), the global matrix system becomes:
-
-\beq
-\textbf{K}=
-\begin{bmatrix}
-1 & 0 & 0 & 0 & 0\\
-k(2, 1)^{e=1} & k(2, 2)^{e=1}+k(1, 1)^{e=2} & k(1, 2)^{e=2} & 0 & 0\\
-0 & k(2, 1)^{e=2} & k(2, 2)^{e=2}+k(1, 1)^{e=3} & k(1, 2)^{e=3} & 0\\
-0 & 0 & k(2, 1)^{e=3} & k(2, 2)^{e=3}+k(1, 1)^{e=4} & k(1, 2)^{e=4}\\
-0 & 0 & 0 & 0 & 1\\
-\end{bmatrix}
-\eeq
-
-\beq
-\textbf{R}=\begin{bmatrix}
-3.5\\ R_2^{e=1}+R_1^{e=2}\\R_2^{e=2}+R_1^{e=3}\\R_2^{e=3}+R_1^{e=4}\\10.5\\
-\end{bmatrix}
-\eeq
-
-\section{The Conjugate Gradient Method}
-The CG method requires computation of the residual:
-
-\beq
-r^i=R-\textbf{K}a^i
-\eeq
-
-where \(i\) is the iteration index. Each update to the solution iterates is performed according to:
-
-\beq
-\label{eq:CGUpdate}
-a^{i+1}=a^i+\lambda^iz^i
-\eeq
-
-where the update scales by \(z^i\):
-
-\beq
-\label{eq:ZUpdateCG}
-z^i=r^i+\theta^iz^{i-1}
-\eeq
-
-where \(\theta^i\) is a parameter chosen such that \(z^i\) is \(\textbf{K}\)-conjugate to \(z^{i-1}\), or:
-
-\beq
-\label{eq:kconjugate}
-z^{T,i}\textbf{K}z^{i-1}=0
-\eeq
-
-In other words, the search direction is a combination of a move in the reverse direction of the gradient (method of steepest descent) plus a motion perpendicular to that direction. This helps to avoid duplicate searching in the same general area. For the very first iteration, it is common to select \(z^1=r^1\). Simply plugging in Eq. \eqref{eq:ZUpdateCG} to Eq. \eqref{eq:kconjugate} gives:
-
-\beq
-\theta^i=-\frac{r^{T,i}\textbf{K}z^{i-1}}{z^{T,i-1}\textbf{K}z^{i-1}}
-\eeq
-
-Plugging in Eq. \eqref{eq:CGUpdate} into Eq. \eqref{eq:IterativeMethodsPotential} and then taking the partial derivative with respect to \(\lambda^i\), the optimal \(\lambda^i\) is:
-
-\beq
-\label{eq:UpdateCG}
-\lambda^i=\frac{z^{T,i}r^i}{z^{T,i}\textbf{K}z^i}
-\eeq
 
 \end{document}

@@ -30,7 +30,7 @@ for index, filename in enumerate(filenames):
 		my_dict[description] = {'size':size, 'CG':CG, 'total':total, 'CGiterations':CGiterations}
 
 for description in descriptions:
-    plt.plot(my_dict[description]['size'], my_dict[description]['CGiterations'], label=description)
+    plt.plot(my_dict[description]['size'], my_dict[description]['total'], label=description)
     #plt.plot(my_dict[description]['size'], my_dict[description]['CG'], label='CG solver')
     plt.ylabel('Runtime per CG iteration (s)')
     plt.xlabel('Size')
