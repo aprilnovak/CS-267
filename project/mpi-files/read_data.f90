@@ -10,12 +10,12 @@ real(8), save :: source      ! heat source
 real(8), save :: reltol      ! CG relative convergence tolerance
 real(8), save :: ddtol       ! DD convergence tolerance
 integer, save :: pretend_procs ! fake number of processes to simulate same IC
-real(8), save :: length      ! global domain length
-real(8), save :: n_el        ! global number of elements
+real(8), save :: length, n_el
 
 contains
 
 subroutine read_commandline()
+!  use mesh, only: global
   integer              :: nargs
   integer              :: i
   character(len = 12)  :: args
