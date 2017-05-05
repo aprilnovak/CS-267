@@ -8,17 +8,7 @@
 
 for i in $(seq 2 2 24)
 do
-    srun -n $i -N 1 ./mpi.out 1 50000 2 3
-#    srun -N 1 ./serial.out 1 50000 2 3 $i
-
+    srun -n $i -N 1 ./mpi.out 1 20000 2 3
+    srun -N 1 ./serial.out 1 20000 2 3 $i
 done
 
-#export OMP_NUM_THREADS=6
-#srun -n 1 -c 24 ./openmp -n 500 -o openmp.txt
-
-#srun -n 5 -N 1 ./a.out 1 500 2 5
-
-
-# -n : number of MPI processes
-# -c : number of OpenMP threads
-# -N : number of nodes
