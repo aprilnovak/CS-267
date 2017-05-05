@@ -1,0 +1,14 @@
+#!/bin/bash -l
+#SBATCH -p debug 		# change this option for non-debug runs
+#SBATCH -t 00:5:00		# adjust the amount of time as necessary
+#SBATCH -N 1    		# adjust the number of nodes per test (e.g. start with 1, 2, ...)
+#SBATCH -A mp309
+#SBATCH -o mpi.%j.stdout
+#SBATCH -e mpi.%j.error
+
+for i in $(seq 2 2 24)
+do
+    srun -n $i -N 1 ./mpi.out 1 20000 2 3
+    srun -N 1 ./serial.out 1 20000 2 3 $i
+done
+
